@@ -5,9 +5,11 @@ def main():
     games = get_owned_games()
     if games:
         print("Successfully retrieved games!")
-        print("\nFirst 10 games:")
-        for i, game in enumerate(games[:10], 1):
-            print(f"{i}. {game}")
+        print("\nGames and their genres:")
+        for i, (game_name, details) in enumerate(games.items(), 1):
+            print(f"{i}. {game_name}")
+            print(f"   Genres: {', '.join(details['genres']) if details['genres'] else 'No genres found'}")
+            print()
     else:
         print("No games found or error occurred")
 
