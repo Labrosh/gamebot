@@ -42,11 +42,27 @@ async def on_ready():
 
 
 def load_cache():
-    """Load cached game data from file."""
+    """Load cached game data from file and validates it."""
+    # if os.path.exists(CACHE_FILE):
+    #     with open(CACHE_FILE, "r") as f:
+    #         return json.load(f)
+    # return {"last_updated": 0, "games": {}}
     if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            return json.load(f)
-    return {"last_updated": 0, "games": {}}
+        try:
+            with open(CACHE_FILE, "r") as f:
+                return json.load(f)
+            
+            # Ensure the cache contains valid structure
+            if "last_updated" not in cache or "games" not in cache:
+                raise ValueError("Cache file is missing required keys.")
+            
+            return data # Return cache data if valid
+        
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Cache file is corrupted: {e}. Loading fresh cache.")
+            return {"last_updated": 0, "games": {}}  # Return fresh cache on error
+        
+    return {"last_updated": 0, "games": {}}  # Return fresh cache if file doesn't exist
 
 
 def save_cache(data):
@@ -89,6 +105,9 @@ def fetch_game_genres(appid):
 def update_cache():
     """Updates the game cache by adding missing genre data."""
     backup_cache()
+    # Renmove old failed games from cache
+    if "failed_games" in cache:
+        del cache["failed_games"]
     cache = load_cache()
     owned_games = fetch_owned_games()
     games_to_update = []
