@@ -138,10 +138,34 @@ async def main():
     else:
         logger.info("Using cached game data.")
     
+    # Setup signal handlers
+    loop = asyncio.get_running_loop()
+    for signal_name in ('SIGINT', 'SIGTERM'):
+        loop.add_signal_handler(
+            getattr(signal, signal_name),
+            lambda: asyncio.create_task(cleanup())
+        )
+    
     try:
         await bot.start(TOKEN)
-    except KeyboardInterrupt:
+    finally:
+        if not bot.is_closed():
+            await bot.close()
+
+async def cleanup():
+    """Cleanup function for graceful shutdown."""
+    logger.info("Received shutdown signal, cleaning up...")
+    try:
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        [task.cancel() for task in tasks]
+        await asyncio.gather(*tasks, return_exceptions=True)
         await bot.close()
+    finally:
+        logger.info("Shutdown complete!")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import signal
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
