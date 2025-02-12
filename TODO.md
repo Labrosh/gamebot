@@ -7,7 +7,7 @@
 - [x] Create `bot.py`
 
 ## 🔧 Features to Implement
-- [ ] Connect bot to Discord
+- [X] Connect bot to Discord
 - [ ] Implement `!randomgame`
 - [ ] Implement `!game [title]` for details
 - [ ] Implement `!recommend [genre]`
