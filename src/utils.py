@@ -1,5 +1,5 @@
 import random
-from typing import List, Set
+from typing import List, Set, Optional
 
 def levenshtein_distance(s1: str, s2: str) -> int:
     """Calculate the Levenshtein distance between two strings."""
@@ -41,3 +41,32 @@ def find_similar_genres(input_genre: str, available_genres: List[str], max_dista
 def get_sample_genres(genres: List[str], count: int = 3) -> List[str]:
     """Get a random sample of genres to suggest."""
     return random.sample(genres, min(count, len(genres)))
+
+def find_similar_game(input_name: str, game_names: List[str], max_distance: int = 3) -> List[str]:
+    """Find closest matching game names. Returns list of matches."""
+    input_name = input_name.lower().strip()
+    matches = []
+
+    # First try exact matches
+    for name in game_names:
+        if input_name == name.lower():
+            return [name]  # Exact match, return immediately
+
+    # Then try substring matches
+    for name in game_names:
+        # Handle common cases like "witcher3" matching "The Witcher 3"
+        name_simplified = ''.join(c.lower() for c in name if c.isalnum())
+        input_simplified = ''.join(c.lower() for c in input_name if c.isalnum())
+        
+        if input_simplified in name_simplified:
+            matches.append(name)
+            continue
+
+    # If no substring matches, try Levenshtein
+    if not matches:
+        for name in game_names:
+            distance = levenshtein_distance(input_simplified, ''.join(c.lower() for c in name if c.isalnum()))
+            if distance <= max_distance:
+                matches.append(name)
+
+    return matches

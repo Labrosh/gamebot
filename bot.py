@@ -13,12 +13,12 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("gamebot")
 
-# Bot configuration
+# Configuration
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
-STEAM_USER_ID = os.getenv("STEAM_USER_ID")
+STEAM_USER_ID = os.getenv("STEAM_ID")  # Changed to match .env file
 
-# Initialize Steam cache and Discord bot
+# Initialize services
 steam = SteamCache(STEAM_API_KEY, STEAM_USER_ID)
 intents = discord.Intents.default()
 intents.message_content = True

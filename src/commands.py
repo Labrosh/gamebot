@@ -1,5 +1,6 @@
 import random
 import logging
+import os
 from typing import Optional
 from discord.ext import commands
 from . import utils
@@ -60,15 +61,56 @@ class GameCommands:
             await ctx.send("✅ Game cache updated!")
 
         @self.bot.command()
+        async def nukeandrefresh(ctx):
+            """Delete cache and force a complete refresh."""
+            await ctx.send("💣 Deleting cache and forcing complete refresh...")
+            if os.path.exists(self.steam.cache_file):
+                self.steam.backup_cache()  # Make a backup just in case
+                os.remove(self.steam.cache_file)
+                logger.info("Cache file deleted")
+            self.steam.update_cache()
+            await ctx.send("✅ Cache completely rebuilt!")
+
+        @self.bot.command()
         async def helpgamebot(ctx):
             """Show GameBot's available commands"""
             help_text = """Here's what I can do:
 • `!recommend` - Get a random game recommendation
 • `!recommend [genre]` - Get a game recommendation for a specific genre
 • `!refresh` - Update the game cache (admin only)
+• `!nukeandrefresh` - Delete cache and force a complete refresh (admin only)
 • `!helpgamebot` - Show this help message
 Want more details? Just @ mention me with "what do you do"! 🎮"""
             await ctx.send(help_text)
+
+        @self.bot.command()
+        async def info(ctx, *, game_name: str):
+            """Show information about a specific game."""
+            games = self.steam.get_games()
+            
+            # Try to find matching games
+            matches = utils.find_similar_game(game_name, list(games.keys()))
+            
+            if not matches:
+                await ctx.send(f"❌ Couldn't find any games matching '{game_name}'")
+                return
+            
+            if len(matches) > 1:
+                # Multiple matches found
+                message = f"Found multiple matching games:\n"
+                for i, name in enumerate(matches, 1):
+                    message += f"{i}. {name}\n"
+                message += "\nPlease be more specific!"
+                await ctx.send(message)
+                return
+            
+            # Single match found
+            game = matches[0]
+            game_data = games[game]
+            genres = f"({', '.join(game_data['genres'])})" if game_data.get('genres') else ""
+            desc = f"\n> {game_data['description']}" if game_data.get('description') else "\n> No description available"
+            
+            await ctx.send(f"🎮 **{game}** {genres}{desc}")
 
         @self.bot.event
         async def on_message(message):
