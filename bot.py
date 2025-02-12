@@ -87,7 +87,15 @@ def update_cache():
     games_to_update = []
 
     for game in owned_games:
-        if game["name"] not in cache["games"] or not cache["games"][game["name"]]["genres"]:
+        game_name = game["name"]
+        
+        # Keep existing data if available
+        if game_name not in cache["games"]:
+            cache["games"][game_name] = {"appid": game["appid"], "genres": [], "last_updated": 0}
+
+        # Only update games missing genres or outdated (older than CACHE_EXPIRATION)
+        last_updated = cache["games"][game_name].get("last_updated", 0)
+        if not cache["games"][game_name]["genres"] or (time.time() - last_updated > CACHE_EXPIRATION):
             games_to_update.append(game)
 
     logger.info(f"Updating {len(games_to_update)} games with missing genres...")
