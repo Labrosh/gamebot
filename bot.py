@@ -21,14 +21,23 @@ logger = logging.getLogger("gamebot")
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 STEAM_USER_ID = os.getenv("STEAM_USER_ID")
-CACHE_FILE = "game_cache.json"
+CACHE_FILE = "games_cache.json"
 CACHE_EXPIRATION = 24 * 60 * 60  # 24 hours
 CONCURRENT_WORKERS = 4
 cache_lock = threading.Lock()
 
 # Discord Bot setup
 intents = discord.Intents.default()
+intents.message_content = True  # Enable message content intent
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+@bot.event
+async def on_ready():
+    """Called when bot is ready and connected to Discord."""
+    logger.info(f"Logged in as {bot.user.name}")
+    logger.info("Syncing commands...")
+    await bot.tree.sync()
+    logger.info("Commands synced!")
 
 
 def load_cache():
@@ -121,11 +130,18 @@ async def refresh(ctx):
     await ctx.send("✅ Game cache updated!")
 
 
-if __name__ == "__main__":
+async def main():
+    """Main async entry point."""
     if is_cache_stale():
         logger.info("Cache is stale, updating...")
         update_cache()
     else:
         logger.info("Using cached game data.")
     
-    bot.run(TOKEN)
+    try:
+        await bot.start(TOKEN)
+    except KeyboardInterrupt:
+        await bot.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
