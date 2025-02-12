@@ -1,5 +1,21 @@
 # GameBot TODO List
 
+## Immediate Priorities
+- [ ] Fix inefficient cache system:
+  - [ ] Add last_updated timestamp per game
+  - [ ] Check Steam API for library changes before full refresh
+  - [ ] Only update games that changed or are new
+  - [ ] Save failed API calls to retry later
+  - [ ] Add cache version for future schema changes
+  - [ ] Implement backup before cache updates
+
+## Priority Fixes
+- [ ] Improve cache system
+  - [ ] Keep existing data when updating cache
+  - [ ] Only update games with missing/outdated data
+  - [ ] Add timestamp per game entry
+  - [ ] Implement proper error handling for failed API calls
+
 ## Core Setup
 - [x] Create repo
 - [x] Set up `README.md`
@@ -55,13 +71,15 @@
 - [ ] Support multi-genre queries (e.g., "action rpg")
 - [ ] Add genre statistics (most/least common)
 
-## Technical Improvements
-
 ### Cache Optimization
+- [ ] Keep historical game data
 - [ ] Implement incremental updates
 - [ ] Add lazy loading for game details
 - [ ] Create priority caching system
 - [ ] Add partial cache updates
+- [ ] Add cache validation
+- [ ] Implement cache backup system
+- [ ] Add cache statistics logging
 
 ### Performance
 - [ ] Batch genre requests
