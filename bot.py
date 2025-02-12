@@ -11,8 +11,6 @@ import shutil
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
-import game_tester
-from game_tester import GameTester
 
 load_dotenv()
 
@@ -75,8 +73,43 @@ def backup_cache():
         shutil.copy(CACHE_FILE, f"{CACHE_FILE}.bak")
         logger.info("Cache backup created: games_cache.json.bak")
 
+def get_library_signature():
+    """Get a quick signature of the Steam library state."""
+    games = fetch_owned_games()
+    game_ids = sorted([g["appid"] for g in games])  # Sort for consistent comparison
+    return {
+        "count": len(games),
+        "ids": game_ids,
+        "hash": hash(tuple(game_ids))  # Quick way to compare lists
+    }
+
+def is_library_changed():
+    """Quick check if Steam library has changed."""
+    cache = load_cache()
+    current = get_library_signature()
+    
+    # Get cached signature, if it exists
+    cached = cache.get("library_signature", {})
+    if not cached:
+        return True  # No signature = assume changed
+        
+    # Quick count check first
+    if current["count"] != cached.get("count", 0):
+        logger.info("Game count changed, library update needed")
+        return True
+        
+    # If counts match, compare content
+    if current["hash"] != cached.get("hash", 0):
+        logger.info("Game list changed, library update needed")
+        return True
+        
+    return False
+
 def is_cache_stale():
-    """Check if cache is older than expiration time."""
+    """Check if cache needs updating."""
+    if is_library_changed():  # Check library first
+        return True
+    # Only check time if library hasn't changed
     cache = load_cache()
     return time.time() - cache.get("last_updated", 0) > CACHE_EXPIRATION
 
@@ -104,6 +137,10 @@ def update_cache():
     """Updates the game cache by adding missing genre data."""
     backup_cache()
     cache = load_cache()
+    
+    # Store current library signature
+    cache["library_signature"] = get_library_signature()
+    
     # Renmove old failed games from cache
     if "failed_games" in cache:
         del cache["failed_games"]
@@ -155,9 +192,19 @@ def get_cached_games():
 
 
 @bot.command()
-async def recommend(ctx, genre: str):
-    """Recommend a game based on genre."""
+async def recommend(ctx, genre: str = None):
+    """Recommend a game based on genre (or random if no genre specified)."""
     games = get_cached_games()
+    
+    if genre is None:
+        # No genre specified, pick any game
+        game_name = random.choice(list(games.keys()))
+        genres = games[game_name]["genres"]
+        genre_text = f" ({', '.join(genres)})" if genres else ""
+        await ctx.send(f"🎮 Random game recommendation: **{game_name}**{genre_text}")
+        return
+    
+    # Genre specified, continue with existing logic
     filtered_games = [name for name, data in games.items() if genre.lower() in data.get("genres", [])]
     
     if not filtered_games:
@@ -177,34 +224,51 @@ async def refresh(ctx):
 
 async def main():
     """Main async entry point."""
-    if is_cache_stale():
-        logger.info("Cache is stale, updating...")
-        update_cache()
-    else:
-        logger.info("Using cached game data.")
-    
-    # Setup signal handlers
-    loop = asyncio.get_running_loop()
-    for signal_name in ('SIGINT', 'SIGTERM'):
-        loop.add_signal_handler(
-            getattr(signal, signal_name),
-            lambda: asyncio.create_task(cleanup())
-        )
-    
     try:
+        if is_cache_stale():
+            logger.info("Cache is stale, updating...")
+            update_cache()
+        else:
+            logger.info("Using cached game data.")
+        
+        # Setup signal handlers
+        loop = asyncio.get_running_loop()
+        for signal_name in ('SIGINT', 'SIGTERM'):
+            loop.add_signal_handler(
+                getattr(signal, signal_name),
+                lambda: asyncio.create_task(cleanup())
+            )
+        
         await bot.start(TOKEN)
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received")
     finally:
-        if not bot.is_closed():
-            await bot.close()
+        await cleanup()
 
 async def cleanup():
     """Cleanup function for graceful shutdown."""
-    logger.info("Received shutdown signal, cleaning up...")
+    logger.info("Shutdown requested, cleaning up...")
     try:
+        if not bot.is_closed():
+            # Close the Discord websocket
+            await bot.close()
+        
+        # Get all tasks
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        [task.cancel() for task in tasks]
+        
+        # Cancel all tasks
+        for task in tasks:
+            task.cancel()
+            
+        # Wait for tasks to complete
         await asyncio.gather(*tasks, return_exceptions=True)
-        await bot.close()
+        
+        # Close all aiohttp connectors
+        for session in bot._http._HTTPClient__session:
+            await session.close()
+            
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
     finally:
         logger.info("Shutdown complete!")
 
@@ -212,12 +276,17 @@ if __name__ == "__main__":
     import signal
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        from game_tester import GameTester
+        # Test mode
         cache = load_cache()
+        from game_tester import GameTester
         tester = GameTester(cache)
         tester.run_interactive()
     else:
+        # Normal bot mode
         try:
             asyncio.run(main())
-        except KeyboardInterrupt:
-            logger.info("Bot stopped by user")
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            pass  # Normal shutdown, ignore these errors
+        except Exception as e:
+            logger.error(f"Bot crashed: {e}")
+            raise

@@ -172,3 +172,5 @@ cython_debug/
 
 # project specific
 games_cache.json
+GPT reply.txt
+CLAUDE reply.txt
