@@ -100,12 +100,23 @@ def update_cache():
 
     logger.info(f"Updating {len(games_to_update)} games with missing genres...")
     
+    failed_games = []  # Track failed API calls
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENT_WORKERS) as executor:
-        results = executor.map(lambda game: (game["name"], fetch_game_genres(game["appid"])), games_to_update)
-        
-        for name, genres in results:
+        results = executor.map(lambda game: (game["name"], game["appid"], fetch_game_genres(game["appid"])), games_to_update)
+
+        for name, appid, genres in results:
             if genres:
-                cache["games"][name] = {"appid": game["appid"], "genres": genres}
+                cache["games"][name]["appid"] = appid  # Store appid
+                cache["games"][name]["genres"] = genres
+                cache["games"][name]["last_updated"] = time.time()
+            else:
+                failed_games.append(name)  # Save for retry
+
+    # Log failed games
+    if failed_games:
+        logger.warning(f"Failed to fetch genres for {len(failed_games)} games: {failed_games}")
+        cache["failed_games"] = failed_games  # Save failed games to retry later
     
     cache["last_updated"] = time.time()
     save_cache(cache)
