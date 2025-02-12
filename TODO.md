@@ -1,20 +1,31 @@
 # GameBot TODO List
 
+## Completed Cache Improvements
+- [x] Keep existing data when updating cache
+- [x] Add last_updated timestamp per game entry
+- [x] Implement backup before cache updates
+- [x] Add cache validation and error handling
+- [x] Save failed API calls to retry later
+- [x] Clean up old failed API calls during refresh
+
+## Completed Improvements
+
+### Testing Improvements
+- [x] Add command-line testing interface
+- [x] Separate test logic from main bot code
+- [x] Implement basic test framework
+- [x] Add interactive testing mode
+
 ## Immediate Priorities
-- [ ] Fix inefficient cache system:
-  - [ ] Add last_updated timestamp per game
-  - [ ] Check Steam API for library changes before full refresh
-  - [ ] Only update games that changed or are new
-  - [ ] Save failed API calls to retry later
-  - [ ] Add cache version for future schema changes
-  - [ ] Implement backup before cache updates
+- [ ] Add cache version for future schema changes
+- [ ] Implement incremental updates for game libraries
+- [ ] Add Steam API check for library changes before full refresh
 
 ## Priority Fixes
 - [ ] Improve cache system
-  - [ ] Keep existing data when updating cache
-  - [ ] Only update games with missing/outdated data
-  - [ ] Add timestamp per game entry
-  - [ ] Implement proper error handling for failed API calls
+  - [ ] Add partial cache updates
+  - [ ] Implement lazy loading for game details
+  - [ ] Add priority caching system
 
 ## Core Setup
 - [x] Create repo
@@ -72,26 +83,25 @@
 - [ ] Add genre statistics (most/least common)
 
 ### Cache Optimization
-- [ ] Keep historical game data
-- [ ] Implement incremental updates
-- [ ] Add lazy loading for game details
-- [ ] Create priority caching system
-- [ ] Add partial cache updates
-- [ ] Add cache validation
-- [ ] Implement cache backup system
-- [ ] Add cache statistics logging
+- [x] Keep historical game data
+- [x] Add cache statistics logging
+- [x] Implement smarter refresh scheduling
+- [ ] Add memory usage optimization
+- [ ] Implement cache compression
 
 ### Performance
+- [x] Improve concurrent processing
+- [x] Add progress tracking by game count
 - [ ] Batch genre requests
-- [ ] Improve concurrent processing
-- [ ] Add progress tracking by game count
 - [ ] Implement background genre fetching
 
-### Code Quality
+## Code Quality
+- [x] Improve error handling
+- [x] Implement basic test infrastructure
 - [ ] Add unit tests
-- [ ] Improve error handling
 - [ ] Add type hints
 - [ ] Create proper documentation
+- [ ] Add test coverage for new features
 
 ## Known Issues
 - Long initial cache build (~1 hour for 1600+ games)
@@ -107,3 +117,5 @@
 - [ ] Recommendation voting system
 - [ ] Game recommendation database
 - [ ] User preference learning
+- [ ] Automated test suite for all commands
+- [ ] Test mode for Discord interactions

@@ -11,6 +11,8 @@ import shutil
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
+import game_tester
+from game_tester import GameTester
 
 load_dotenv()
 
@@ -208,7 +210,14 @@ async def cleanup():
 
 if __name__ == "__main__":
     import signal
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        from game_tester import GameTester
+        cache = load_cache()
+        tester = GameTester(cache)
+        tester.run_interactive()
+    else:
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
