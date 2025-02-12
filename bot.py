@@ -124,13 +124,16 @@ def fetch_owned_games():
 
 
 def fetch_game_genres(appid):
-    """Fetches game genres from Steam API."""
+    """Fetches game genres and short description from Steam API."""
     url = f"https://store.steampowered.com/api/appdetails?appids={appid}"
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json().get(str(appid), {}).get("data", {})
-        return [genre["description"].lower() for genre in data.get("genres", [])]
-    return []
+        return {
+            "genres": [genre["description"].lower() for genre in data.get("genres", [])],
+            "description": data.get("short_description", "").strip()
+        }
+    return {"genres": [], "description": ""}
 
 
 def update_cache():
@@ -168,10 +171,11 @@ def update_cache():
     with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENT_WORKERS) as executor:
         results = executor.map(lambda game: (game["name"], game["appid"], fetch_game_genres(game["appid"])), games_to_update)
 
-        for name, appid, genres in results:
-            if genres:
-                cache["games"][name]["appid"] = appid  # Store appid
-                cache["games"][name]["genres"] = genres
+        for name, appid, genres_data in results:
+            if genres_data and (genres_data["genres"] or genres_data["description"]):  # Check if we got valid data
+                cache["games"][name]["appid"] = appid
+                cache["games"][name]["genres"] = genres_data["genres"]
+                cache["games"][name]["description"] = genres_data["description"]
                 cache["games"][name]["last_updated"] = time.time()
             else:
                 failed_games.append(name)  # Save for retry
@@ -190,6 +194,50 @@ def get_cached_games():
     """Load game data from cache and return as a dictionary."""
     return load_cache().get("games", {})
 
+def get_all_genres():
+    """Get a list of all unique genres in the library."""
+    games = get_cached_games()
+    genres = set()
+    for game in games.values():
+        genres.update(game.get("genres", []))
+    return sorted(genres)
+
+def levenshtein_distance(s1: str, s2: str) -> int:
+    """Calculate the Levenshtein distance between two strings."""
+    if len(s1) < len(s2):
+        return levenshtein_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    
+    return previous_row[-1]
+
+def find_closest_genres(input_genre: str, all_genres: list[str], max_distance: int = 2) -> list[str]:
+    """Find genres that are close matches to the input."""
+    input_genre = input_genre.lower()
+    matches = []
+    
+    for genre in all_genres:
+        # Exact substring match gets priority
+        if input_genre in genre.lower() or genre.lower() in input_genre:
+            matches.append(genre)
+            continue
+            
+        # Check Levenshtein distance for typos
+        distance = levenshtein_distance(input_genre, genre.lower())
+        if distance <= max_distance:
+            matches.append(genre)
+    
+    return matches
 
 @bot.command()
 async def recommend(ctx, genre: str = None):
@@ -199,20 +247,36 @@ async def recommend(ctx, genre: str = None):
     if genre is None:
         # No genre specified, pick any game
         game_name = random.choice(list(games.keys()))
-        genres = games[game_name]["genres"]
+        game_data = games[game_name]
+        genres = game_data["genres"]
         genre_text = f" ({', '.join(genres)})" if genres else ""
-        await ctx.send(f"🎮 Random game recommendation: **{game_name}**{genre_text}")
+        desc = f"\n> {game_data.get('description', '')}" if game_data.get('description') else ""
+        await ctx.send(f"🎮 Random game recommendation: **{game_name}**{genre_text}{desc}")
         return
     
-    # Genre specified, continue with existing logic
+    # Genre specified, try to find matches
     filtered_games = [name for name, data in games.items() if genre.lower() in data.get("genres", [])]
     
     if not filtered_games:
-        await ctx.send(f"❌ No {genre} games found in the library.")
+        # Get all available genres for suggestions
+        all_genres = get_all_genres()
+        # Find similar genres using fuzzy matching
+        similar_genres = find_closest_genres(genre, all_genres)
+        
+        message = f"❌ No games found with genre '{genre}'."
+        if similar_genres:
+            message += f"\nDid you mean: {', '.join(similar_genres)}?"
+        else:
+            # Show some available genres if no similar ones found
+            sample_genres = random.sample(all_genres, min(3, len(all_genres)))
+            message += f"\nAvailable genres include: {', '.join(sample_genres)}"
+        
+        await ctx.send(message)
     else:
         recommended_game = random.choice(filtered_games)
-        await ctx.send(f"🎮 Recommended {genre} game: **{recommended_game}**")
-
+        game_data = games[recommended_game]
+        desc = f"\n> {game_data.get('description', '')}" if game_data.get('description') else ""
+        await ctx.send(f"🎮 Recommended {genre} game: **{recommended_game}**{desc}")
 
 @bot.command()
 async def refresh(ctx):
@@ -221,6 +285,35 @@ async def refresh(ctx):
     update_cache()
     await ctx.send("✅ Game cache updated!")
 
+@bot.event
+async def on_message(message):
+    """Handle direct mentions of the bot"""
+    if message.author == bot.user:  # Ignore self
+        return
+
+    # Check if bot was mentioned AND someone is asking what it does
+    if bot.user in message.mentions and any(q in message.content.lower() for q in [
+        "what do you do",
+        "what can you do",
+        "help",
+        "commands",
+        "how do you work"
+    ]):
+        help_text = "Hi! I'm GameBot! I can recommend games from your Steam library. Try `!recommend` for a random game or `!recommend action` for a specific genre! 🎮"
+        await message.channel.send(help_text)
+    
+    await bot.process_commands(message)  # Don't forget to process other commands!
+
+@bot.command()
+async def helpgamebot(ctx):
+    """Show GameBot's available commands"""
+    help_text = """Here's what I can do:
+• `!recommend` - Get a random game recommendation
+• `!recommend [genre]` - Get a game recommendation for a specific genre
+• `!refresh` - Update the game cache (admin only)
+• `!helpgamebot` - Show this help message
+Want more details? Just @ mention me with "what do you do"! 🎮"""
+    await ctx.send(help_text)
 
 async def main():
     """Main async entry point."""

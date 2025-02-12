@@ -172,5 +172,18 @@ cython_debug/
 
 # project specific
 games_cache.json
+games_cache.json.bak
+*.bak  # Catch any other backup files too
 GPT reply.txt
 CLAUDE reply.txt
+CLAUDE_PRIMER.md
+GPT_PRIMER.md
+
+# Project specific files
+/games_cache.json
+/games_cache.json.bak
+/*.bak
+/GPT reply.txt
+/CLAUDE reply.txt
+/CLAUDE_PRIMER.md
+/GPT_PRIMER.md
