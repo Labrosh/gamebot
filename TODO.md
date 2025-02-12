@@ -48,6 +48,13 @@
 - [ ] User-specific cache management
 - [ ] Multi-user recommendation system
 
+### Genre System
+- [ ] Add `!genres` command to list all available genres
+- [ ] Implement genre aliases (e.g., "shooter" → "action")
+- [ ] Add genre descriptions and examples
+- [ ] Support multi-genre queries (e.g., "action rpg")
+- [ ] Add genre statistics (most/least common)
+
 ## Technical Improvements
 
 ### Cache Optimization
@@ -74,6 +81,8 @@
 - Memory usage during large operations
 - Single user (admin) Steam library only
 - No way to compare game libraries between users
+- Steam API uses specific genre names that might not match common terms
+- No fuzzy matching for genre names
 
 ## Future Ideas
 - [ ] AI-generated game descriptions
