@@ -7,6 +7,7 @@ import threading
 import requests
 import asyncio
 import concurrent.futures
+import shutil
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
@@ -54,6 +55,11 @@ def save_cache(data):
         with open(CACHE_FILE, "w") as f:
             json.dump(data, f, indent=4)
 
+def backup_cache():
+    """Create a backup of the cache before modifying it."""
+    if os.path.exists(CACHE_FILE):
+        shutil.copy(CACHE_FILE, f"{CACHE_FILE}.bak")
+        logger.info("Cache backup created: games_cache.json.bak")
 
 def is_cache_stale():
     """Check if cache is older than expiration time."""
@@ -82,6 +88,7 @@ def fetch_game_genres(appid):
 
 def update_cache():
     """Updates the game cache by adding missing genre data."""
+    backup_cache()
     cache = load_cache()
     owned_games = fetch_owned_games()
     games_to_update = []
