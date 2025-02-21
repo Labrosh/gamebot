@@ -54,10 +54,15 @@ class GameCommands:
                 await ctx.send(f"🎮 Recommended {genre} game: **{recommended_game}**{desc}")
 
         @self.bot.command()
-        async def refresh(ctx):
-            """Manually refresh the game cache."""
-            await ctx.send("♻️ Refreshing game cache, this may take a while...")
-            self.steam.update_cache()
+        async def refresh(ctx, force: str = None):
+            """Manually refresh the game cache. Use '!refresh force' to force a full rebuild."""
+            if force == "force":
+                await ctx.send("💣 Forcing full cache rebuild. This will take longer...")
+                self.steam.update_cache(force=True)
+            else:
+                await ctx.send("♻️ Refreshing game cache (updating missing data only)...")
+                self.steam.update_cache()
+
             await ctx.send("✅ Game cache updated!")
 
         @self.bot.command()

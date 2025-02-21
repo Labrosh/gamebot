@@ -240,77 +240,71 @@ class SteamCache:
                 
         return results
 
-    def update_cache(self):
-        """Updates the game cache with fresh data."""
+    def update_cache(self, force=False):
+        """Updates the game cache. If 'force' is True, completely rebuilds the cache."""
         self.backup_cache()
-        cache = self.load_cache()
-        cache["library_signature"] = self.get_library_signature()
+
+        # If force is enabled, wipe the entire cache
+        if force:
+            logger.info("Force refreshing ALL games...")
+            cache = {"games": {}, "last_updated": 0}  # Reset cache completely
+        else:
+            cache = self.load_cache()
         
+        cache["library_signature"] = self.get_library_signature()
+
         if "failed_games" in cache:
             del cache["failed_games"]
-        
+
         owned_games = self.fetch_owned_games()
         logger.info(f"Found {len(owned_games)} games in Steam library")
+        
         games_to_update = []
 
-        # First pass: Mark games needing updates with progress bar
-        with tqdm(owned_games, desc="Checking games", unit="game") as pbar:
-            for game in pbar:
-                game_name = game["name"]
-                pbar.set_description(f"Checking {game_name[:30]}...")
-                
-                if game_name not in cache["games"]:
-                    logger.info(f"New game found: {game_name}")
-                    cache["games"][game_name] = {
-                        "appid": game["appid"],
-                        "genres": [],
-                        "description": "",
-                        "last_updated": 0
-                    }
+        # First pass: Mark games needing updates
+        for game in owned_games:
+            game_name = game["name"]
 
+            # If forcing or game is new/missing, update it
+            if force or game_name not in cache["games"]:
+                games_to_update.append(game)
+            else:
+                # Check for missing or empty required fields
                 game_data = cache["games"][game_name]
-                needs_update = False
                 for field in self.REQUIRED_FIELDS:
                     if field not in game_data or not game_data[field]:
-                        needs_update = True
+                        games_to_update.append(game)
                         break
 
-                if needs_update or (time.time() - game_data.get("last_updated", 0) > self.cache_expiration):
-                    games_to_update.append(game)
-
         failed_games = []
-        
+
         # Update games with progress bar
-        with tqdm(total=len(games_to_update), desc="Updating games", unit="game") as pbar:
-            # Process games in batches of 10
-            for i in range(0, len(games_to_update), 10):
-                batch = games_to_update[i:i + 10]
-                batch_appids = [game["appid"] for game in batch]
-                
-                details = self.fetch_game_details_batch(batch_appids)
-                
-                for game in batch:
-                    name = game["name"]
-                    appid = game["appid"]
-                    pbar.set_description(f"Updating {name[:30]}...")
-                    
-                    game_details = details.get(appid, {})
-                    if game_details and (game_details["genres"] or game_details["description"]):
-                        cache["games"][name].update({
-                            "appid": appid,
-                            "genres": game_details["genres"],
-                            "description": game_details["description"],
-                            "last_updated": time.time()
-                        })
-                    else:
-                        failed_games.append(name)
-                    
-                    pbar.update(1)
+        for i in range(0, len(games_to_update), 10):
+            batch = games_to_update[i:i + 10]
+            batch_appids = [game["appid"] for game in batch]
+
+            details = self.fetch_game_details_batch(batch_appids)
+
+            for game in batch:
+                name = game["name"]
+                appid = game["appid"]
+
+                game_details = details.get(appid, {})
+                if game_details and (game_details["genres"] or game_details["description"]):
+                    # Always update game data, ensuring missing fields are filled
+                    cache["games"][name] = {
+                        "appid": appid,
+                        "genres": game_details.get("genres", cache["games"].get(name, {}).get("genres", [])),
+                        "description": game_details.get("description", cache["games"].get(name, {}).get("description", "")),
+                        "last_updated": time.time()
+                    }
+                else:
+                    failed_games.append(name)
 
         if failed_games:
             logger.warning(f"Failed to fetch details for {len(failed_games)} games")
             cache["failed_games"] = failed_games
-        
+
         cache["last_updated"] = time.time()
         self.save_cache(cache)
         logger.info("Cache updated successfully")
