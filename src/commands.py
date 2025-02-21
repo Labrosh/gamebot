@@ -115,9 +115,19 @@ Want more details? Just @ mention me with "what do you do"! 🎮"""
             matches = utils.find_similar_game(game_name, list(games.keys()))
             
             if not matches:
-                await ctx.send(f"❌ Couldn't find any games matching '{game_name}'. If this seems wrong, try `!refresh force` to update the game cache.")
-                return
-            
+                await ctx.send(f"🔍 '{game_name}' isn't in your library. Checking Steam API...")
+                
+                steam_data = self.steam.fetch_game_from_api(game_name)
+                
+                if not steam_data:
+                    await ctx.send(f"❌ Couldn't find '{game_name}' on Steam either.")
+                    return
+                    
+                # Add to cache
+                self.steam.add_game_to_cache(game_name, steam_data)
+                await ctx.send(f"✅ Found '{game_name}' on Steam! Added to your game list.")
+                matches = [game_name]
+
             if len(matches) > 1:
                 # Multiple matches found
                 message = f"Found multiple matching games:\n"
@@ -159,7 +169,7 @@ Want more details? Just @ mention me with "what do you do"! 🎮"""
             await ctx.send(f"🤖 Generating an enhanced AI description for **{game}**...")
             
             ai_desc = self.generate_ai_description(game)
-            if ai_desc:
+            if (ai_desc):
                 message = f"🎮 **{game}**\n{ai_desc}"
                 await ctx.send(message)
             else:

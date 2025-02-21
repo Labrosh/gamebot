@@ -327,3 +327,78 @@ class SteamCache:
     def find_closest_genres(self, input_genre: str, all_genres: List[str]) -> List[str]:
         """Find similar genres using utils module."""
         return utils.find_similar_genres(input_genre, all_genres)
+
+    def fetch_game_from_api(self, game_name: str) -> Optional[Dict]:
+        """Search Steam API for a game by name and return its details if found."""
+        url = "https://store.steampowered.com/api/appdetails"
+        search_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
+        
+        try:
+            # First get the full app list
+            response = requests.get(search_url)
+            if response.status_code != 200:
+                logger.error(f"Steam API error: {response.text}")
+                return None
+            
+            data = response.json().get("applist", {}).get("apps", [])
+            
+            # Find exact or very close matches only
+            potential_matches = []
+            search_term = game_name.lower().strip()
+            
+            for game in data:
+                game_title = game["name"].lower().strip()
+                # Only accept exact matches or very close matches
+                if (game_title == search_term or  # Exact match
+                    (len(search_term) > 4 and search_term in game_title and  # Substring match for longer terms
+                     abs(len(game_title) - len(search_term)) <= 3)):  # Length difference ≤ 3
+                    potential_matches.append(game)
+            
+            if not potential_matches:
+                return None
+                
+            if len(potential_matches) > 1:
+                logger.info(f"Multiple matches found for '{game_name}', using closest match")
+                # Use the shortest name difference as it's likely the most accurate
+                potential_matches.sort(key=lambda x: abs(len(x["name"]) - len(game_name)))
+            
+            # Verify the game actually exists by checking its store page
+            game = potential_matches[0]
+            params = {
+                "appids": game["appid"],
+                "cc": "us",
+                "l": "english"
+            }
+            
+            verify_response = requests.get(url, params=params)
+            if verify_response.status_code != 200:
+                return None
+                
+            store_data = verify_response.json().get(str(game["appid"]), {})
+            if not store_data.get("success", False):
+                return None
+                
+            # Game exists, return the data
+            return {
+                "appid": game["appid"],
+                "name": game["name"],  # Use the official name from Steam
+                "genres": store_data.get("data", {}).get("genres", []),
+                "description": store_data.get("data", {}).get("short_description", "No description available"),
+            }
+
+        except Exception as e:
+            logger.error(f"Error searching for game '{game_name}': {e}")
+            return None
+
+    def add_game_to_cache(self, game_name: str, game_data: Dict):
+        """Add a new game to the cache and save the file."""
+        cache = self.load_cache()
+        cache["games"][game_name] = {
+            "appid": game_data["appid"],
+            "genres": game_data.get("genres", []),
+            "description": game_data.get("description", "No description available"),
+            "last_updated": time.time()
+        }
+
+        self.save_cache(cache)
+        logger.info(f"Added '{game_name}' to cache.")
