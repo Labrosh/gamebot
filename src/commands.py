@@ -122,8 +122,17 @@ Want more details? Just @ mention me with "what do you do"! 🎮"""
                 if not steam_data:
                     await ctx.send(f"❌ Couldn't find '{game_name}' on Steam either.")
                     return
+                
+                # Handle multiple matches
+                if "multiple_matches" in steam_data:
+                    matches = steam_data["multiple_matches"]
+                    message = "Found multiple games. Please be more specific:\n"
+                    for i, game in enumerate(matches, 1):
+                        message += f"{i}. {game['name']}\n"
+                    await ctx.send(message)
+                    return
                     
-                # Add to cache
+                # Add single match to cache
                 self.steam.add_game_to_cache(game_name, steam_data)
                 await ctx.send(f"✅ Found '{game_name}' on Steam! Added to your game list.")
                 matches = [game_name]

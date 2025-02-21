@@ -370,20 +370,51 @@ class SteamCache:
                 "l": "english"
             }
             
-            verify_response = requests.get(url, params=params)
-            if verify_response.status_code != 200:
+            retry_attempts = 3
+            for attempt in range(retry_attempts):
+                verify_response = requests.get(url, params=params)
+
+                if verify_response.status_code == 200:
+                    break  # Success, stop retrying
+
+                if verify_response.status_code == 429:  # Rate limit
+                    logger.warning(f"Rate limited by Steam API, retrying in 5 seconds... (Attempt {attempt + 1})")
+                    time.sleep(5)
+                    continue
+
+                logger.error(f"Steam API request failed with status {verify_response.status_code}")
                 return None
-                
+
+            # Handle multiple matches
+            if len(potential_matches) > 1:
+                logger.info(f"Multiple matches found for '{game_name}'")
+                return {
+                    "multiple_matches": [
+                        {"name": g["name"], "appid": g["appid"]} 
+                        for g in potential_matches[:5]  # Limit to top 5
+                    ]
+                }
+
             store_data = verify_response.json().get(str(game["appid"]), {})
             if not store_data.get("success", False):
                 return None
                 
+            # Get description and handle empty case
+            description = store_data.get("data", {}).get("short_description", "").strip()
+            if not description:
+                description = "No description available (AI needed)"
+
+            # Get genres and ensure there's always at least "Unknown"
+            genres = store_data.get("data", {}).get("genres", [])
+            if not genres:
+                genres = [{"description": "Unknown"}]
+
             # Game exists, return the data
             return {
                 "appid": game["appid"],
-                "name": game["name"],  # Use the official name from Steam
-                "genres": store_data.get("data", {}).get("genres", []),
-                "description": store_data.get("data", {}).get("short_description", "No description available"),
+                "name": game["name"],
+                "genres": [g["description"].lower() for g in genres],
+                "description": description,
             }
 
         except Exception as e:
