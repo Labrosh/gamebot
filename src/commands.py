@@ -14,6 +14,11 @@ class GameCommands:
         self.steam = steam
         self._register_commands()
 
+    def generate_ai_description(self, game_name: str) -> Optional[str]:
+        """Generate an AI description for a game. Returns None if generation fails."""
+        logger.info(f"🔍 AI description requested for: {game_name}")
+        return None  # AI call will be implemented later
+
     def _register_commands(self):
         """Register all commands with the bot."""
         @self.bot.command()
@@ -89,15 +94,28 @@ Want more details? Just @ mention me with "what do you do"! 🎮"""
             await ctx.send(help_text)
 
         @self.bot.command()
-        async def info(ctx, *, game_name: str):
-            """Show information about a specific game."""
-            games = self.steam.get_games()
+        async def info(ctx, mode: Optional[str] = None, *, game_name: str = None):
+            """Show information about a specific game.
+            Usage: 
+                !info <game_name>     - Show basic game info
+                !info ai <game_name>  - Show AI-enhanced description
+            """
+            # Handle the case where user types "!info ai game_name"
+            if mode and mode.lower() == "ai" and game_name:
+                return await self.info_with_ai(ctx, game_name)
             
-            # Try to find matching games
+            # If mode exists but isn't 'ai', it's part of the game name
+            if mode and game_name:
+                game_name = f"{mode} {game_name}"
+            elif mode and not game_name:
+                game_name = mode
+
+            # Regular info command logic
+            games = self.steam.get_games()
             matches = utils.find_similar_game(game_name, list(games.keys()))
             
             if not matches:
-                await ctx.send(f"❌ Couldn't find any games matching '{game_name}'")
+                await ctx.send(f"❌ Couldn't find any games matching '{game_name}'. If this seems wrong, try `!refresh force` to update the game cache.")
                 return
             
             if len(matches) > 1:
@@ -113,9 +131,39 @@ Want more details? Just @ mention me with "what do you do"! 🎮"""
             game = matches[0]
             game_data = games[game]
             genres = f"({', '.join(game_data['genres'])})" if game_data.get('genres') else ""
-            desc = f"\n> {game_data['description']}" if game_data.get('description') else "\n> No description available"
             
-            await ctx.send(f"🎮 **{game}** {genres}{desc}")
+            desc = game_data.get("description", "").strip()
+            if desc == "No description available":
+                await ctx.send("🤔 Generating an AI description, please wait...")
+                ai_desc = self.generate_ai_description(game)
+                desc = ai_desc if ai_desc else "**This game is missing a description!** Try `!info ai game_name` for an AI-generated description."
+
+            store_link = f"https://store.steampowered.com/app/{game_data['appid']}"
+            message = (
+                f"🎮 **{game}** {genres}\n"
+                f"🔗 **[Steam Store]({store_link})**\n"
+                f"{desc}"
+            )
+            await ctx.send(message)
+
+        async def info_with_ai(self, ctx, game_name: str):
+            """Helper method to handle AI-enhanced game descriptions."""
+            games = self.steam.get_games()
+            matches = utils.find_similar_game(game_name, list(games.keys()))
+            
+            if not matches:
+                await ctx.send(f"❌ Couldn't find any games matching '{game_name}'")
+                return
+                
+            game = matches[0]
+            await ctx.send(f"🤖 Generating an enhanced AI description for **{game}**...")
+            
+            ai_desc = self.generate_ai_description(game)
+            if ai_desc:
+                message = f"🎮 **{game}**\n{ai_desc}"
+                await ctx.send(message)
+            else:
+                await ctx.send(f"❌ Sorry, I couldn't generate an AI description for '{game}' at the moment.")
 
         @self.bot.event
         async def on_message(message):

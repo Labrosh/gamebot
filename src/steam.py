@@ -85,7 +85,10 @@ class SteamCache:
 
     REQUIRED_FIELDS = {
         "genres": {"path": ["genres"], "transform": lambda x: [g["description"].lower() for g in x]},
-        "description": {"path": ["short_description"], "transform": str.strip},
+        "description": {
+            "path": ["short_description"],
+            "transform": lambda x: x.strip() if x else "No description available (AI needed)",
+        },
         # Add new fields here like:
         # "price": {"path": ["price_overview", "final_formatted"], "transform": lambda x: x},
         # "categories": {"path": ["categories"], "transform": lambda x: [c["description"] for c in x]},
@@ -102,15 +105,15 @@ class SteamCache:
         url = "https://store.steampowered.com/api/appdetails"
         
         try:
-            # Add delay to avoid rate limiting
-            time.sleep(0.5)  # 500ms delay between requests
+            # Increase delay to avoid rate limiting
+            time.sleep(1.0)  # 1-second delay between requests
             response = requests.get(url, params=params)
             
             if response.status_code == 200:
                 data = response.json().get(str(appid), {}).get("data", {})
                 if not data:
-                    logger.warning(f"No data returned for game {appid}")
-                    return {field: [] if field != "description" else "" for field in self.REQUIRED_FIELDS}
+                    logger.warning(f"No data returned for game {appid} - will need AI description")
+                    return {field: [] if field != "description" else "No description available (AI needed)" for field in self.REQUIRED_FIELDS}
                     
                 result = {}
                 for field, config in self.REQUIRED_FIELDS.items():
