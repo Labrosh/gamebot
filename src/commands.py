@@ -115,6 +115,7 @@ class GameCommands:
                 
                 if pending and 0 <= choice < len(pending):
                     selected_game = pending[choice]
+                    game_name = selected_game['name'] if isinstance(selected_game, dict) else selected_game
                     
                     # Clear pending matches for this user
                     del self.pending_matches[user_id]
@@ -122,19 +123,33 @@ class GameCommands:
                     
                     if is_api_match:
                         # Get full game details from Steam API
-                        steam_data = self.steam.fetch_game_from_api(selected_game['name'])
-                        if steam_data and "multiple_matches" not in steam_data:
+                        steam_data = self.steam.fetch_game_from_api(game_name)
+                        if steam_data and isinstance(steam_data, dict) and 'appid' in steam_data:
                             # Add to cache and show info
-                            self.steam.add_game_to_cache(selected_game['name'], steam_data)
-                            game_name = selected_game['name']
+                            self.steam.add_game_to_cache(game_name, steam_data)
+                            game_data = steam_data
                             await ctx.send(f"✅ Added '{game_name}' to your game list!")
                         else:
                             await ctx.send("❌ Failed to fetch game details from Steam.")
                             return
                     else:
-                        game_name = selected_game
+                        game_data = self.steam.get_games().get(game_name)
+                        if not game_data:
+                            await ctx.send("❌ Error: Game data not found in cache.")
+                            return
                     
-                    mode = None  # Reset mode since we used it as selection
+                    # Display game info
+                    genres = f"({', '.join(game_data.get('genres', []))})" if game_data.get('genres') else ""
+                    desc = game_data.get("description", "No description available").strip()
+                    store_link = f"https://store.steampowered.com/app/{game_data['appid']}"
+                    
+                    message = (
+                        f"🎮 **{game_name}** {genres}\n"
+                        f"🔗 **[Steam Store]({store_link})**\n"
+                        f"{desc}"
+                    )
+                    await ctx.send(message)
+                    return
                 else:
                     await ctx.send("❌ No pending game selection or invalid choice. Please try your search again.")
                     return
