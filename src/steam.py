@@ -146,7 +146,7 @@ Create a fun, engaging 2-3 sentence description that highlights what makes this 
 Focus on gameplay elements and what makes it special."""
 
             response = openai.ChatCompletion.create(
-                model="gpt-4",
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are a passionate gamer who loves explaining what makes games special. Keep descriptions concise, fun, and engaging."},
                     {"role": "user", "content": prompt}
@@ -541,6 +541,7 @@ Focus on gameplay elements and what makes it special."""
             "appid": game_data["appid"],
             "genres": game_data.get("genres", []),
             "description": game_data.get("description", "No description available"),
+            "ai_description": game_data.get("ai_description", ""),  # Store AI description if available
             "last_updated": time.time()
         }
 

@@ -5,6 +5,7 @@ from typing import Optional
 from discord.ext import commands
 from . import utils
 from .steam import SteamCache
+from .openai_service import OpenAIService
 
 logger = logging.getLogger("gamebot")
 
@@ -14,33 +15,52 @@ class GameCommands:
         self.steam = steam
         self.pending_matches = {}  # Add this dictionary to store pending matches per user
         self.pending_api_matches = {}  # New dict to track if matches are from API
+        self.openai = OpenAIService()
         self._register_commands()
 
     def generate_ai_description(self, game_name: str) -> Optional[str]:
-        """Generate an AI description for a game. Returns None if generation fails."""
-        logger.info(f"🔍 AI description requested for: {game_name}")
-        return None  # AI call will be implemented later
+        """Generate an AI description for a game."""
+        try:
+            return self.openai.generate_game_description(game_name)
+        except Exception as e:
+            logger.error(f"Failed to generate AI description: {e}")
+            return None
 
-    def info_with_ai(self, ctx, game_name: str):
+    async def info_with_ai(self, ctx, game_name: str):
         """Helper method to handle AI-enhanced game descriptions."""
         games = self.steam.get_games()
         matches = utils.find_similar_game(game_name, list(games.keys()))
         
         if not matches:
-            return ctx.send(f"❌ Couldn't find any games matching '{game_name}'")
+            await ctx.send(f"❌ Couldn't find any games matching '{game_name}'")
+            return
             
         game = matches[0]
         game_data = games[game]
         
-        return ctx.send(f"🤖 Generating an enhanced description for **{game}**...")
-        
-        # Pass original description to AI for context
-        original_desc = game_data.get("description", "")
-        ai_desc = self.steam.generate_ai_description(game, original_desc)
+        # Check if we already have an AI description cached
+        if game_data.get("ai_description"):
+            ai_desc = game_data["ai_description"]
+            logger.info(f"Using cached AI description for {game}")
+        else:
+            await ctx.send(f"🤖 Generating an enhanced description for **{game}**...")
+            original_desc = game_data.get("description", "")
+            ai_desc = self.steam.generate_ai_description(game, original_desc)
+            
+            if ai_desc:
+                # Update cache with AI description
+                game_data["ai_description"] = ai_desc
+                self.steam.add_game_to_cache(game, {
+                    "appid": game_data["appid"],
+                    "genres": game_data.get("genres", []),
+                    "description": original_desc,
+                    "ai_description": ai_desc
+                })
         
         if ai_desc:
             store_link = f"https://store.steampowered.com/app/{game_data['appid']}"
             genres = f"({', '.join(game_data.get('genres', ['unknown']))})"
+            original_desc = game_data.get("description", "No description available")
             
             message = (
                 f"🎮 **{game}** {genres}\n"
@@ -48,9 +68,9 @@ class GameCommands:
                 f"📝 **Steam Description:**\n> {original_desc}\n\n"
                 f"🎭 **Fun Version:**\n> {ai_desc}"
             )
-            return ctx.send(message)
+            await ctx.send(message)
         else:
-            return ctx.send(f"❌ Sorry, I couldn't generate an AI description for '{game}' at the moment.")
+            await ctx.send(f"❌ Sorry, I couldn't generate an AI description for '{game}' at the moment.")
 
     def _register_commands(self):
         """Register all commands with the bot."""
