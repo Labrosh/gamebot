@@ -13,7 +13,7 @@ def is_admin():
     """Check if the user is the bot admin."""
     async def predicate(ctx):
         # Replace this with your Discord user ID
-        allowed_id = 274267561114615808  # Your Discord ID
+        allowed_id = 253764322449293312  # Your Discord ID
         return ctx.author.id == allowed_id
     return commands.check(predicate)
 
