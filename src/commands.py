@@ -117,6 +117,31 @@ class GameCommands:
                     selected_game = pending[choice]
                     game_name = selected_game['name'] if isinstance(selected_game, dict) else selected_game
                     
+                    if is_api_match:
+                        selected_game_data = pending[choice]  # Get selected game dictionary
+                        appid = selected_game_data.get("appid")
+
+                        if not appid:
+                            await ctx.send("❌ Error: Could not determine App ID for the selected game.")
+                            return
+
+                        # Fetch details using App ID instead of game name
+                        steam_data = self.steam.fetch_game_details(appid)
+
+                        if steam_data and isinstance(steam_data, dict):
+                            # Store it in cache using game name and appid
+                            self.steam.add_game_to_cache(selected_game_data["name"], {
+                                "appid": appid,
+                                "genres": steam_data.get("genres", []),
+                                "description": steam_data.get("description", "No description available")
+                            })
+
+                            game_data = self.steam.get_games().get(selected_game_data["name"])
+                            await ctx.send(f"✅ Added '{selected_game_data['name']}' to your game list!")
+                        else:
+                            await ctx.send("❌ Failed to fetch game details from Steam.")
+                            return
+
                     # Clear pending matches for this user
                     del self.pending_matches[user_id]
                     self.pending_api_matches.pop(user_id, None)
