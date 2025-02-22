@@ -3,12 +3,17 @@ import json
 import time
 import logging
 import threading
-import requests
-import concurrent.futures
 import shutil
 from typing import Dict, List, Optional
+
+# Third party imports
+import requests
+import concurrent.futures
 from tqdm import tqdm
-from . import utils  # Add utils import
+
+# Local imports
+from . import utils
+from .api_logger import APILogger
 
 logger = logging.getLogger("gamebot")
 
@@ -20,6 +25,7 @@ class SteamCache:
         self.cache_lock = threading.Lock()
         self.cache_expiration = 24 * 60 * 60  # 24 hours
         self.concurrent_workers = 4
+        self.api_logger = APILogger()
     
     def load_cache(self) -> Dict:
         """Load cached game data from file and validate it."""
@@ -56,10 +62,11 @@ class SteamCache:
         params = {
             "key": self.api_key,
             "steamid": self.user_id,
-            "include_appinfo": 1,
+            "include_appinfo": "1",
+            "include_played_free_games": "1",
             "format": "json"
         }
-        url = "http://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
+        url = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
         
         logger.info(f"Fetching games from Steam API...")
         try:
@@ -73,8 +80,32 @@ class SteamCache:
                     return []
                     
                 games = data["response"].get("games", [])
-                logger.info(f"Found {len(games)} games in API response")
-                return games
+                # Debug log to see what we're getting
+                logger.info(f"First game data: {games[0] if games else 'No games'}")
+                
+                # Clean up game data to ensure we have names
+                processed_games = []
+                for game in games:
+                    if "name" not in game:
+                        # If name is missing, fetch it from the store API
+                        appid = game["appid"]
+                        store_url = "https://store.steampowered.com/api/appdetails"
+                        store_params = {"appids": appid, "l": "english"}
+                        try:
+                            store_response = requests.get(store_url, params=store_params)
+                            if store_response.status_code == 200:
+                                store_data = store_response.json().get(str(appid), {}).get("data", {})
+                                game["name"] = store_data.get("name", f"Unknown Game {appid}")
+                            else:
+                                game["name"] = f"Unknown Game {appid}"
+                        except Exception as e:
+                            logger.error(f"Error fetching name for game {appid}: {e}")
+                            game["name"] = f"Unknown Game {appid}"
+                        time.sleep(1)  # Rate limiting
+                    processed_games.append(game)
+                
+                logger.info(f"Processed {len(processed_games)} games")
+                return processed_games
             else:
                 logger.error(f"Steam API error: {response.text}")
                 return []
@@ -97,17 +128,21 @@ class SteamCache:
     def fetch_game_details(self, appid: int) -> Dict:
         """Fetches game details from Steam API."""
         params = {
-            "appids": appid,
+            "appids": str(appid),  # Convert to string
             "cc": "us",  # Country code
             "l": "english",  # Language
             "format": "json"
         }
         url = "https://store.steampowered.com/api/appdetails"
         
+        headers = {  # Add headers
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        
         try:
             # Increase delay to avoid rate limiting
             time.sleep(1.0)  # 1-second delay between requests
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, headers=headers)  # Add headers to request
             
             if response.status_code == 200:
                 data = response.json().get(str(appid), {}).get("data", {})
@@ -130,6 +165,13 @@ class SteamCache:
                 return result
                 
             logger.warning(f"Failed to fetch details for game {appid}: Status {response.status_code}")
+            self.api_logger.log_api_error(
+                endpoint="store.steampowered.com/api/appdetails",
+                status_code=response.status_code,
+                response_text=response.text,
+                params=params,
+                headers=headers
+            )
             return {field: [] if field != "description" else "" for field in self.REQUIRED_FIELDS}
             
         except Exception as e:
@@ -189,68 +231,92 @@ class SteamCache:
         logger.info("Cache appears up to date")            
         return time.time() - cache.get("last_updated", 0) > self.cache_expiration
 
-    def fetch_game_details_batch(self, appids: List[int], batch_size: int = 10) -> Dict[int, Dict]:
-        """Fetch details for multiple games in batches."""
+    def fetch_game_details_batch(self, appids: List[int], batch_size: int = 5) -> Dict[int, Dict]:
+        """Fetch details for multiple games one at a time."""
         results = {}
         
-        # Split appids into batches
-        for i in range(0, len(appids), batch_size):
-            batch = appids[i:i + batch_size]
-            
-            # Add delay between batches to avoid rate limiting
-            if i > 0:
-                time.sleep(1.5)  # 1.5s between batches
-            
-            params = {
-                "appids": ",".join(map(str, batch)),
-                "cc": "us",
-                "l": "english",
-                "format": "json"
-            }
-            
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-            }
-            
-            try:
-                response = requests.get(
-                    "https://store.steampowered.com/api/appdetails",
-                    params=params,
-                    headers=headers
-                )
+        # Process each game individually
+        with tqdm(appids, desc="Fetching game details", unit="game") as pbar:
+            for appid in pbar:
+                if not isinstance(appid, int) or appid <= 0:
+                    logger.warning(f"Skipping invalid AppID: {appid}")
+                    results[appid] = {
+                        "genres": ["unknown"],
+                        "description": "No description available (invalid AppID)"
+                    }
+                    continue
+
+                # Add delay between requests
+                time.sleep(1.5)  # Conservative rate limiting
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    for appid in batch:
-                        app_data = data.get(str(appid), {}).get("data", {})
-                        result = {}
+                params = {
+                    "appids": str(appid),
+                    "cc": "us",
+                    "l": "english"
+                }
+                
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                }
+                
+                retry_count = 0
+                max_retries = 3
+                
+                while retry_count < max_retries:
+                    try:
+                        response = requests.get(
+                            "https://store.steampowered.com/api/appdetails",
+                            params=params,
+                            headers=headers,
+                            timeout=10
+                        )
                         
-                        for field, config in self.REQUIRED_FIELDS.items():
-                            value = app_data
-                            for key in config["path"]:
-                                value = value.get(key, {})
+                        if response.status_code == 200:
+                            data = response.json()
+                            app_data = data.get(str(appid), {})
+                            success = app_data.get("success", False)
+                            app_data = app_data.get("data", {}) if success else {}
                             
-                            result[field] = config["transform"](value) if value else ("" if field == "description" else [])
+                            results[appid] = {
+                                "genres": [g["description"].lower() for g in app_data.get("genres", [{"description": "unknown"}])],
+                                "description": app_data.get("short_description", "No description available").strip() or "No description available"
+                            }
+                            break  # Success, exit retry loop
                             
-                        results[appid] = result
-                        
-                elif response.status_code == 403:
-                    logger.error("Steam API rate limit hit, increasing delay")
-                    time.sleep(5)  # Extra delay on rate limit
+                        elif response.status_code == 429:  # Rate limit
+                            retry_count += 1
+                            wait_time = 5 * retry_count  # Exponential backoff
+                            logger.warning(f"Rate limited, waiting {wait_time}s before retry {retry_count}")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"Error {response.status_code} for appid {appid}")
+                            results[appid] = {
+                                "genres": ["unknown"],
+                                "description": "No description available"
+                            }
+                            break
+                            
+                    except Exception as e:
+                        logger.error(f"Request failed for appid {appid}: {e}")
+                        retry_count += 1
+                        time.sleep(5)
+                
+                if retry_count == max_retries:
+                    logger.error(f"Failed to fetch appid {appid} after {max_retries} retries")
+                    results[appid] = {
+                        "genres": ["unknown"],
+                        "description": "No description available"
+                    }
                     
-            except Exception as e:
-                logger.error(f"Batch request failed: {e}")
-                
         return results
 
     def update_cache(self, force=False):
         """Updates the game cache. If 'force' is True, completely rebuilds the cache."""
         self.backup_cache()
 
-        # If force is enabled, wipe the entire cache
         if force:
             logger.info("Force refreshing ALL games...")
-            cache = {"games": {}, "last_updated": 0}  # Reset cache completely
+            cache = {"games": {}, "last_updated": 0}
         else:
             cache = self.load_cache()
         
@@ -260,57 +326,61 @@ class SteamCache:
             del cache["failed_games"]
 
         owned_games = self.fetch_owned_games()
-        logger.info(f"Found {len(owned_games)} games in Steam library")
+        total_games = len(owned_games)
+        logger.info(f"Found {total_games} games in Steam library")
         
         games_to_update = []
 
         # First pass: Mark games needing updates
-        for game in owned_games:
-            game_name = game["name"]
+        logger.info("Analyzing which games need updates...")
+        with tqdm(owned_games, desc="Checking games", unit="game") as pbar:
+            for game in pbar:
+                game_name = game["name"]
+                pbar.set_postfix_str(f"Checking: {game_name[:30]}...")
 
-            # If forcing or game is new/missing, update it
-            if force or game_name not in cache["games"]:
-                games_to_update.append(game)
-            else:
-                # Check for missing or empty required fields
-                game_data = cache["games"][game_name]
-                for field in self.REQUIRED_FIELDS:
-                    if field not in game_data or not game_data[field]:
-                        games_to_update.append(game)
-                        break
+                if force or game_name not in cache["games"]:
+                    games_to_update.append(game)
+                else:
+                    game_data = cache["games"][game_name]
+                    for field in self.REQUIRED_FIELDS:
+                        if field not in game_data or not game_data[field]:
+                            games_to_update.append(game)
+                            break
 
-        failed_games = []
+        update_count = len(games_to_update)
+        if update_count == 0:
+            logger.info("No games need updating!")
+            return
+        
+        logger.info(f"Updating {update_count} games...")
 
-        # Update games with progress bar
-        for i in range(0, len(games_to_update), 10):
-            batch = games_to_update[i:i + 10]
-            batch_appids = [game["appid"] for game in batch]
+        # Process games in smaller chunks to save progress regularly
+        chunk_size = 20
+        for i in range(0, len(games_to_update), chunk_size):
+            chunk = games_to_update[i:i + chunk_size]
+            chunk_appids = [game["appid"] for game in chunk]
+            
+            details = self.fetch_game_details_batch(chunk_appids)
 
-            details = self.fetch_game_details_batch(batch_appids)
-
-            for game in batch:
+            for game in chunk:
                 name = game["name"]
                 appid = game["appid"]
-
+                
                 game_details = details.get(appid, {})
-                if game_details and (game_details["genres"] or game_details["description"]):
-                    # Always update game data, ensuring missing fields are filled
-                    cache["games"][name] = {
-                        "appid": appid,
-                        "genres": game_details.get("genres", cache["games"].get(name, {}).get("genres", [])),
-                        "description": game_details.get("description", cache["games"].get(name, {}).get("description", "")),
-                        "last_updated": time.time()
-                    }
-                else:
-                    failed_games.append(name)
+                cache["games"][name] = {
+                    "appid": appid,
+                    "genres": game_details.get("genres", ["unknown"]),
+                    "description": game_details.get("description", "No description available"),
+                    "last_updated": time.time()
+                }
 
-        if failed_games:
-            logger.warning(f"Failed to fetch details for {len(failed_games)} games")
-            cache["failed_games"] = failed_games
+            # Save progress after each chunk
+            self.save_cache(cache)
+            logger.info(f"Progress saved ({i + len(chunk)}/{len(games_to_update)} games processed)")
 
         cache["last_updated"] = time.time()
         self.save_cache(cache)
-        logger.info("Cache updated successfully")
+        logger.info(f"Cache update complete! Updated {update_count} games")
 
     def get_games(self) -> Dict:
         """Get all cached games."""

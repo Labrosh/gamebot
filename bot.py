@@ -9,14 +9,21 @@ from src.commands import GameCommands
 
 load_dotenv()
 
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("gamebot")
 
+# Add debug logging
+logger.info("Checking environment variables...")
+logger.info(f"DISCORD_BOT_TOKEN exists: {bool(os.getenv('DISCORD_BOT_TOKEN'))}")
+logger.info(f"STEAM_API_KEY exists: {bool(os.getenv('STEAM_API_KEY'))}")
+logger.info(f"STEAM_USER_ID exists: {bool(os.getenv('STEAM_USER_ID'))}")
+
 # Configuration
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
-STEAM_USER_ID = os.getenv("STEAM_ID")  # Changed to match .env file
+STEAM_USER_ID = os.getenv("STEAM_USER_ID")  # Changed to match .env file
 
 # Initialize services
 steam = SteamCache(STEAM_API_KEY, STEAM_USER_ID)
