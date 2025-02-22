@@ -20,8 +20,8 @@ class GameCommands:
         # Move base_genres to class level so all commands can use it
         self.base_genres = {
             "Action & Combat": {
-                "official": ["Action", "Shooter", "Fighting"],
-                "aliases": ["FPS", "Third-Person Shooter", "First-Person", "Combat", "Beat 'em up"]
+                "official": ["Action", "Shooter"],
+                "aliases": ["FPS", "TPS", "First-Person Shooter", "Third-Person Shooter"]
             },
             "Strategy & Management": {
                 "official": ["Strategy", "Tower Defense", "Turn-Based Strategy", "Real-Time Strategy", "City Builder"],
@@ -106,11 +106,9 @@ class GameCommands:
         for category in self.base_genres.values():
             for official in category["official"]:
                 mapping[official.lower()] = official
-                # Map each alias to its official genre
+                # Each alias maps directly to its parent category's first official genre
                 for alias in category["aliases"]:
-                    if any(alias.lower() in off.lower() or off.lower() in alias.lower() 
-                          for off in category["official"]):
-                        mapping[alias.lower()] = official
+                    mapping[alias.lower()] = category["official"][0]
         return mapping
 
     def _register_commands(self):
@@ -136,15 +134,14 @@ class GameCommands:
             
             if genre_lower in genre_map:
                 official_genre = genre_map[genre_lower]
-                # Look for games with either the official genre or the original input
+                # Look for games with the official genre
                 filtered_games = [name for name, data in games.items() 
-                                if any(g.lower() == official_genre.lower() or 
-                                      g.lower() == genre_lower
+                                if any(g.lower() == official_genre.lower()
                                       for g in data.get("genres", []))]
             else:
                 # If no mapping found, try direct match
                 filtered_games = [name for name, data in games.items() 
-                                if any(genre_lower in g.lower() 
+                                if any(g.lower() == genre_lower
                                       for g in data.get("genres", []))]
             
             if not filtered_games:
