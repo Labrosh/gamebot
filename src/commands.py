@@ -12,6 +12,8 @@ class GameCommands:
     def __init__(self, bot: commands.Bot, steam: SteamCache):
         self.bot = bot
         self.steam = steam
+        self.pending_matches = {}  # Add this dictionary to store pending matches per user
+        self.pending_api_matches = {}  # New dict to track if matches are from API
         self._register_commands()
 
     def generate_ai_description(self, game_name: str) -> Optional[str]:
@@ -102,24 +104,57 @@ class GameCommands:
 
         @self.bot.command()
         async def info(ctx, mode: Optional[str] = None, *, game_name: str = None):
-            """Show information about a specific game.
-            Usage: 
-                !info <game_name>     - Show basic game info
-                !info ai <game_name>  - Show AI-enhanced description
-            """
-            # Handle the case where user types "!info ai game_name"
+            """Show information about a specific game."""
+            # If the input is a number and we have pending matches for this user
+            if game_name is None and mode and mode.isdigit():
+                # Check if there's a pending choice for this user
+                choice = int(mode) - 1
+                user_id = str(ctx.message.author.id)
+                pending = self.pending_matches.get(user_id, [])
+                is_api_match = self.pending_api_matches.get(user_id, False)
+                
+                if pending and 0 <= choice < len(pending):
+                    selected_game = pending[choice]
+                    
+                    # Clear pending matches for this user
+                    del self.pending_matches[user_id]
+                    self.pending_api_matches.pop(user_id, None)
+                    
+                    if is_api_match:
+                        # Get full game details from Steam API
+                        steam_data = self.steam.fetch_game_from_api(selected_game['name'])
+                        if steam_data and "multiple_matches" not in steam_data:
+                            # Add to cache and show info
+                            self.steam.add_game_to_cache(selected_game['name'], steam_data)
+                            game_name = selected_game['name']
+                            await ctx.send(f"✅ Added '{game_name}' to your game list!")
+                        else:
+                            await ctx.send("❌ Failed to fetch game details from Steam.")
+                            return
+                    else:
+                        game_name = selected_game
+                    
+                    mode = None  # Reset mode since we used it as selection
+                else:
+                    await ctx.send("❌ No pending game selection or invalid choice. Please try your search again.")
+                    return
+
+            # Normal command processing
             if mode and mode.lower() == "ai" and game_name:
                 return await self.info_with_ai(ctx, game_name)
             
-            # If mode exists but isn't 'ai', it's part of the game name
             if mode and game_name:
                 game_name = f"{mode} {game_name}"
             elif mode and not game_name:
                 game_name = mode
 
-            # Regular info command logic
             games = self.steam.get_games()
             matches = utils.find_similar_game(game_name, list(games.keys()))
+            
+            # Check for exact match first
+            exact_match = next((name for name in matches if name.lower() == game_name.lower()), None)
+            if exact_match:
+                matches = [exact_match]
             
             if not matches:
                 await ctx.send(f"🔍 '{game_name}' isn't in your library. Checking Steam API...")
@@ -130,30 +165,39 @@ class GameCommands:
                     await ctx.send(f"❌ Couldn't find '{game_name}' on Steam either.")
                     return
                 
-                # Handle multiple matches
+                # Handle multiple matches from Steam API
                 if "multiple_matches" in steam_data:
                     matches = steam_data["multiple_matches"]
-                    message = "Found multiple games. Please be more specific:\n"
+                    # Store matches for this user temporarily
+                    self.pending_matches[str(ctx.message.author.id)] = matches
+                    self.pending_api_matches[str(ctx.message.author.id)] = True  # Mark as API matches
+                    
+                    message = "Found multiple games. Please select one by number:\n"
                     for i, game in enumerate(matches, 1):
-                        message += f"{i}. {game['name']}\n"
+                        game_name = game['name'] if isinstance(game, dict) else game
+                        message += f"{i}. {game_name}\n"
+                    message += "\nType `!info <number>` to select"
                     await ctx.send(message)
                     return
                     
-                # Add single match to cache
+                # Single match from Steam API
                 self.steam.add_game_to_cache(game_name, steam_data)
                 await ctx.send(f"✅ Found '{game_name}' on Steam! Added to your game list.")
                 matches = [game_name]
 
             if len(matches) > 1:
-                # Multiple matches found
-                message = f"Found multiple matching games:\n"
+                # Store matches for this user temporarily
+                self.pending_matches[str(ctx.message.author.id)] = matches
+                self.pending_api_matches[str(ctx.message.author.id)] = False  # Mark as local matches
+                
+                message = "Found multiple matching games. Please select one by number:\n"
                 for i, name in enumerate(matches, 1):
                     message += f"{i}. {name}\n"
-                message += "\nPlease be more specific!"
+                message += "\nType `!info <number>` to select"
                 await ctx.send(message)
                 return
             
-            # Single match found
+            # Process single match
             game = matches[0]
             game_data = games[game]
             genres = f"({', '.join(game_data['genres'])})" if game_data.get('genres') else ""
