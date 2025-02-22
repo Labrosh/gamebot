@@ -22,7 +22,7 @@ class OpenAIService:
                     {"role": "user", "content": prompt}
                 ]
             )
-            return response.choices[0].message.content
+            return response.choices[0].message["content"]
         except Exception as e:
             logger.error(f"OpenAI API Error: {str(e)}")
             return f"Sorry, I couldn't generate a description due to an error: {str(e)}"

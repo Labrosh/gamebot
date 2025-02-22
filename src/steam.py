@@ -153,8 +153,7 @@ Focus on gameplay elements and what makes it special."""
                 ],
                 max_tokens=150  # Limit response length
             )
-            
-            description = response.choices[0].message.content
+            description = response.choices[0].message["content"]
             logger.info(f"AI description generated for {game_name}")
             return description
 
