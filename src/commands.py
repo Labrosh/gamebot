@@ -89,8 +89,32 @@ class GameCommands:
                 await ctx.send(f"🎮 Random game recommendation: **{game_name}**{genre_text}{desc}")
                 return
             
-            # Genre specified, try to find matches
-            filtered_games = [name for name, data in games.items() if genre.lower() in data.get("genres", [])]
+            # Get base genres mapping for alias checking
+            base_genres = {
+                "Action & Combat": {
+                    "official": ["Action", "Shooter", "Fighting"],
+                    "aliases": ["FPS", "Third-Person Shooter", "First-Person", "Combat", "Beat 'em up"]
+                },
+                # ...rest of base_genres dict from genres command...
+            }
+            
+            # Create a mapping of aliases to official genres
+            alias_map = {}
+            for category in base_genres.values():
+                for official in category["official"]:
+                    alias_map[official.lower()] = official
+                    for alias in category["aliases"]:
+                        alias_map[alias.lower()] = official
+
+            # Check if the input genre matches any alias
+            genre_lower = genre.lower()
+            if genre_lower in alias_map:
+                genre = alias_map[genre_lower]
+            
+            # Genre specified, try to find matches (now including aliases)
+            filtered_games = [name for name, data in games.items() 
+                            if any(g.lower() == genre_lower or g.lower() in genre_lower 
+                                  for g in data.get("genres", []))]
             
             if not filtered_games:
                 all_genres = self.steam.get_all_genres()
@@ -99,10 +123,7 @@ class GameCommands:
                 message = f"❌ No games found with genre '{genre}'."
                 if similar_genres:
                     message += f"\nDid you mean: {', '.join(similar_genres)}?"
-                else:
-                    # Use utils for genre sampling
-                    sample_genres = utils.get_sample_genres(all_genres)
-                    message += f"\nAvailable genres include: {', '.join(sample_genres)}"
+                message += "\nTry `!genres` to see all available genres!"
                 
                 await ctx.send(message)
             else:
@@ -140,6 +161,7 @@ class GameCommands:
             help_text = """🎮 **GameBot Commands**
 • `!recommend` - Get a random game recommendation
 • `!recommend [genre]` - Get a game recommendation for a specific genre
+• `!genres` - Show all available game genres and their aliases
 • `!info [game name]` - Show details about a specific game
 • `!info ai [game name]` - Get an AI-enhanced description of the game
 • `!refresh` - Update the game cache (admin only)
@@ -148,7 +170,7 @@ class GameCommands:
 • `!helpgamebot` - Show this help message
 
 💡 **Tips**:
-• You can mention me with "what do you do" for a quick intro
+• Not sure what genres to use? Try `!genres` to see all options!
 • Game and genre searches are fuzzy - close matches will work!
 • If a game isn't in your library, I'll try to find it on Steam"""
             await ctx.send(help_text)
@@ -312,37 +334,68 @@ class GameCommands:
         async def genres(ctx):
             """List all available game genres."""
             games = self.steam.get_games()
-            all_genres = self.steam.get_all_genres()
+            cached_genres = self.steam.get_all_genres()
 
-            # Common genre mappings (add common search terms to their Steam equivalents)
-            genre_groups = {
-                "Action & Combat": ["Action", "FPS", "Fighting", "Shooter", "Third-Person Shooter", "First-Person"],
-                "Strategy & Management": ["Strategy", "RTS", "Tower Defense", "Turn-Based", "City Builder", "Management"],
-                "RPG & Adventure": ["RPG", "Adventure", "Action RPG", "JRPG", "Roguelike", "Open World"],
-                "Simulation": ["Simulation", "Racing", "Flight", "Life Sim", "Business Sim", "Sports"],
-                "Casual & Party": ["Casual", "Party", "Family", "Board Game", "Card Game", "Puzzle"],
-                "Other Popular": ["Indie", "Horror", "Survival", "Multiplayer", "Co-op", "Online"]
+            # Base Steam genres (common ones even if not in cache)
+            base_genres = {
+                "Action & Combat": {
+                    "official": ["Action", "Shooter", "Fighting"],
+                    "aliases": ["FPS", "Third-Person Shooter", "First-Person", "Combat", "Beat 'em up"]
+                },
+                "Strategy & Management": {
+                    "official": ["Strategy", "Tower Defense", "Turn-Based Strategy", "Real-Time Strategy", "City Builder"],
+                    "aliases": ["RTS", "4X", "Grand Strategy", "Tactical", "Base Building"]
+                },
+                "RPG & Adventure": {
+                    "official": ["RPG", "Adventure", "Action RPG", "JRPG", "Roguelike", "Open World"],
+                    "aliases": ["Role-Playing", "Dungeon Crawler", "Hack and Slash"]
+                },
+                "Simulation": {
+                    "official": ["Simulation", "Racing", "Sports", "Flying", "Life Sim"],
+                    "aliases": ["Flight Sim", "Driving", "Management", "Business Sim"]
+                },
+                "Casual & Party": {
+                    "official": ["Casual", "Puzzle", "Family", "Party", "Board Game", "Card Game"],
+                    "aliases": ["Match 3", "Hidden Object", "Mini-games"]
+                },
+                "Other Popular": {
+                    "official": ["Indie", "Horror", "Survival", "Multiplayer", "Co-op", "Online"],
+                    "aliases": ["Battle Royale", "PvP", "Competitive", "Team-Based"]
+                }
             }
 
-            message = "🎯 **Available Game Genres**\n\n"
-            
-            # Build genre groups with actual available genres
-            for group, keywords in genre_groups.items():
-                matching_genres = [g for g in all_genres if any(k.lower() in g.lower() for k in keywords)]
-                if matching_genres:
-                    message += f"**{group}**\n"
-                    message += ", ".join(sorted(matching_genres)) + "\n\n"
+            message = "🎯 **Steam Genre Guide**\n\n"
+            message += "Here are the genres you can use with the `!recommend` command:\n\n"
 
-            # Add any remaining uncategorized genres
-            categorized = {g for groups in genre_groups.values() for g in all_genres 
-                         if any(k.lower() in g.lower() for k in groups)}
-            uncategorized = set(all_genres) - categorized
+            # Combine cached genres with base genres
+            for category, data in base_genres.items():
+                official_genres = set(data["official"])
+                # Fix the genre matching logic
+                available_genres = {g for g in cached_genres 
+                                  if any(official.lower() in g.lower() 
+                                        for official in official_genres)}
+                
+                if available_genres:
+                    message += f"**{category}**\n"
+                    message += f"• Official: {', '.join(sorted(available_genres))}\n"
+                    message += f"• Also try: {', '.join(data['aliases'])}\n\n"
+
+            # Find any uncategorized cached genres (fix the logic here too)
+            all_base_genres = {g.lower() for data in base_genres.values() 
+                             for g in (data["official"] + data["aliases"])}
+            uncategorized = {g for g in cached_genres 
+                           if not any(g.lower() in bg or bg in g.lower() 
+                                    for bg in all_base_genres)}
+
             if uncategorized:
-                message += "**Other Genres**\n"
+                message += "**Other Steam Tags**\n"
                 message += ", ".join(sorted(uncategorized)) + "\n\n"
 
-            message += "\n💡 Use these with the `!recommend` command, like: `!recommend Action`"
-            
+            message += "\n💡 **Tips:**\n"
+            message += "• Genre matching is flexible - try common terms like 'FPS' or 'RTS'\n"
+            message += "• You can use `!recommend` with any of these genres\n"
+            message += "• Some games might use different genre tags than listed here"
+
             await ctx.send(message)
 
         @self.bot.event
