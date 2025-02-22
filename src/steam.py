@@ -146,13 +146,15 @@ Create a fun, engaging 2-3 sentence description that highlights what makes this 
 Focus on gameplay elements and what makes it special."""
 
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",  # Keep your specified model
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are a passionate gamer who loves explaining what makes games special. Keep descriptions concise, fun, and engaging."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=150
             )
+
+            # Extract the AI-generated description properly using dot notation
             description = response.choices[0].message.content
             logger.info(f"AI description generated for {game_name}")
             return description
