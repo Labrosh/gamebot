@@ -9,6 +9,14 @@ from .openai_service import OpenAIService
 
 logger = logging.getLogger("gamebot")
 
+def is_admin():
+    """Check if the user is the bot admin."""
+    async def predicate(ctx):
+        # Replace this with your Discord user ID
+        allowed_id = 274267561114615808  # Your Discord ID
+        return ctx.author.id == allowed_id
+    return commands.check(predicate)
+
 class GameCommands:
     def __init__(self, bot: commands.Bot, steam: SteamCache):
         self.bot = bot
@@ -161,6 +169,7 @@ class GameCommands:
                 await ctx.send(f"🎮 Recommended {genre} game: **{recommended_game}**{desc}")
 
         @self.bot.command()
+        @is_admin()
         async def refresh(ctx, force: str = None):
             """Manually refresh the game cache. Use '!refresh force' to force a full rebuild."""
             if force == "force":
@@ -173,6 +182,7 @@ class GameCommands:
             await ctx.send("✅ Game cache updated!")
 
         @self.bot.command()
+        @is_admin()
         async def nukeandrefresh(ctx):
             """Delete cache and force a complete refresh."""
             await ctx.send("💣 Deleting cache and forcing complete refresh...")
