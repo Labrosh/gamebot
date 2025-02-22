@@ -308,6 +308,43 @@ class GameCommands:
             )
             await ctx.send(message)
 
+        @self.bot.command()
+        async def genres(ctx):
+            """List all available game genres."""
+            games = self.steam.get_games()
+            all_genres = self.steam.get_all_genres()
+
+            # Common genre mappings (add common search terms to their Steam equivalents)
+            genre_groups = {
+                "Action & Combat": ["Action", "FPS", "Fighting", "Shooter", "Third-Person Shooter", "First-Person"],
+                "Strategy & Management": ["Strategy", "RTS", "Tower Defense", "Turn-Based", "City Builder", "Management"],
+                "RPG & Adventure": ["RPG", "Adventure", "Action RPG", "JRPG", "Roguelike", "Open World"],
+                "Simulation": ["Simulation", "Racing", "Flight", "Life Sim", "Business Sim", "Sports"],
+                "Casual & Party": ["Casual", "Party", "Family", "Board Game", "Card Game", "Puzzle"],
+                "Other Popular": ["Indie", "Horror", "Survival", "Multiplayer", "Co-op", "Online"]
+            }
+
+            message = "🎯 **Available Game Genres**\n\n"
+            
+            # Build genre groups with actual available genres
+            for group, keywords in genre_groups.items():
+                matching_genres = [g for g in all_genres if any(k.lower() in g.lower() for k in keywords)]
+                if matching_genres:
+                    message += f"**{group}**\n"
+                    message += ", ".join(sorted(matching_genres)) + "\n\n"
+
+            # Add any remaining uncategorized genres
+            categorized = {g for groups in genre_groups.values() for g in all_genres 
+                         if any(k.lower() in g.lower() for k in groups)}
+            uncategorized = set(all_genres) - categorized
+            if uncategorized:
+                message += "**Other Genres**\n"
+                message += ", ".join(sorted(uncategorized)) + "\n\n"
+
+            message += "\n💡 Use these with the `!recommend` command, like: `!recommend Action`"
+            
+            await ctx.send(message)
+
         @self.bot.event
         async def on_message(message):
             """Handle direct mentions of the bot"""
