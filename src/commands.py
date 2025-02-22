@@ -16,6 +16,34 @@ class GameCommands:
         self.pending_matches = {}  # Add this dictionary to store pending matches per user
         self.pending_api_matches = {}  # New dict to track if matches are from API
         self.openai = OpenAIService()
+        
+        # Move base_genres to class level so all commands can use it
+        self.base_genres = {
+            "Action & Combat": {
+                "official": ["Action", "Shooter", "Fighting"],
+                "aliases": ["FPS", "Third-Person Shooter", "First-Person", "Combat", "Beat 'em up"]
+            },
+            "Strategy & Management": {
+                "official": ["Strategy", "Tower Defense", "Turn-Based Strategy", "Real-Time Strategy", "City Builder"],
+                "aliases": ["RTS", "4X", "Grand Strategy", "Tactical", "Base Building"]
+            },
+            "RPG & Adventure": {
+                "official": ["RPG", "Adventure", "Action RPG", "JRPG", "Roguelike", "Open World"],
+                "aliases": ["Role-Playing", "Dungeon Crawler", "Hack and Slash"]
+            },
+            "Simulation": {
+                "official": ["Simulation", "Racing", "Sports", "Flying", "Life Sim"],
+                "aliases": ["Flight Sim", "Driving", "Management", "Business Sim"]
+            },
+            "Casual & Party": {
+                "official": ["Casual", "Puzzle", "Family", "Party", "Board Game", "Card Game"],
+                "aliases": ["Match 3", "Hidden Object", "Mini-games"]
+            },
+            "Other Popular": {
+                "official": ["Indie", "Horror", "Survival", "Multiplayer", "Co-op", "Online"],
+                "aliases": ["Battle Royale", "PvP", "Competitive", "Team-Based"]
+            }
+        }
         self._register_commands()
 
     def generate_ai_description(self, game_name: str) -> Optional[str]:
@@ -72,6 +100,19 @@ class GameCommands:
         else:
             await ctx.send(f"❌ Sorry, I couldn't generate an AI description for '{game}' at the moment.")
 
+    def _get_genre_mapping(self):
+        """Create a mapping of aliases and official names to their official genres"""
+        mapping = {}
+        for category in self.base_genres.values():
+            for official in category["official"]:
+                mapping[official.lower()] = official
+                # Map each alias to its official genre
+                for alias in category["aliases"]:
+                    if any(alias.lower() in off.lower() or off.lower() in alias.lower() 
+                          for off in category["official"]):
+                        mapping[alias.lower()] = official
+        return mapping
+
     def _register_commands(self):
         """Register all commands with the bot."""
         @self.bot.command()
@@ -89,32 +130,22 @@ class GameCommands:
                 await ctx.send(f"🎮 Random game recommendation: **{game_name}**{genre_text}{desc}")
                 return
             
-            # Get base genres mapping for alias checking
-            base_genres = {
-                "Action & Combat": {
-                    "official": ["Action", "Shooter", "Fighting"],
-                    "aliases": ["FPS", "Third-Person Shooter", "First-Person", "Combat", "Beat 'em up"]
-                },
-                # ...rest of base_genres dict from genres command...
-            }
-            
-            # Create a mapping of aliases to official genres
-            alias_map = {}
-            for category in base_genres.values():
-                for official in category["official"]:
-                    alias_map[official.lower()] = official
-                    for alias in category["aliases"]:
-                        alias_map[alias.lower()] = official
-
-            # Check if the input genre matches any alias
+            # Get genre mapping and try to find the official genre
             genre_lower = genre.lower()
-            if genre_lower in alias_map:
-                genre = alias_map[genre_lower]
+            genre_map = self._get_genre_mapping()
             
-            # Genre specified, try to find matches (now including aliases)
-            filtered_games = [name for name, data in games.items() 
-                            if any(g.lower() == genre_lower or g.lower() in genre_lower 
-                                  for g in data.get("genres", []))]
+            if genre_lower in genre_map:
+                official_genre = genre_map[genre_lower]
+                # Look for games with either the official genre or the original input
+                filtered_games = [name for name, data in games.items() 
+                                if any(g.lower() == official_genre.lower() or 
+                                      g.lower() == genre_lower
+                                      for g in data.get("genres", []))]
+            else:
+                # If no mapping found, try direct match
+                filtered_games = [name for name, data in games.items() 
+                                if any(genre_lower in g.lower() 
+                                      for g in data.get("genres", []))]
             
             if not filtered_games:
                 all_genres = self.steam.get_all_genres()
@@ -336,39 +367,11 @@ class GameCommands:
             games = self.steam.get_games()
             cached_genres = self.steam.get_all_genres()
 
-            # Base Steam genres (common ones even if not in cache)
-            base_genres = {
-                "Action & Combat": {
-                    "official": ["Action", "Shooter", "Fighting"],
-                    "aliases": ["FPS", "Third-Person Shooter", "First-Person", "Combat", "Beat 'em up"]
-                },
-                "Strategy & Management": {
-                    "official": ["Strategy", "Tower Defense", "Turn-Based Strategy", "Real-Time Strategy", "City Builder"],
-                    "aliases": ["RTS", "4X", "Grand Strategy", "Tactical", "Base Building"]
-                },
-                "RPG & Adventure": {
-                    "official": ["RPG", "Adventure", "Action RPG", "JRPG", "Roguelike", "Open World"],
-                    "aliases": ["Role-Playing", "Dungeon Crawler", "Hack and Slash"]
-                },
-                "Simulation": {
-                    "official": ["Simulation", "Racing", "Sports", "Flying", "Life Sim"],
-                    "aliases": ["Flight Sim", "Driving", "Management", "Business Sim"]
-                },
-                "Casual & Party": {
-                    "official": ["Casual", "Puzzle", "Family", "Party", "Board Game", "Card Game"],
-                    "aliases": ["Match 3", "Hidden Object", "Mini-games"]
-                },
-                "Other Popular": {
-                    "official": ["Indie", "Horror", "Survival", "Multiplayer", "Co-op", "Online"],
-                    "aliases": ["Battle Royale", "PvP", "Competitive", "Team-Based"]
-                }
-            }
-
             message = "🎯 **Steam Genre Guide**\n\n"
             message += "Here are the genres you can use with the `!recommend` command:\n\n"
 
             # Combine cached genres with base genres
-            for category, data in base_genres.items():
+            for category, data in self.base_genres.items():
                 official_genres = set(data["official"])
                 # Fix the genre matching logic
                 available_genres = {g for g in cached_genres 
@@ -381,7 +384,7 @@ class GameCommands:
                     message += f"• Also try: {', '.join(data['aliases'])}\n\n"
 
             # Find any uncategorized cached genres (fix the logic here too)
-            all_base_genres = {g.lower() for data in base_genres.values() 
+            all_base_genres = {g.lower() for data in self.base_genres.values() 
                              for g in (data["official"] + data["aliases"])}
             uncategorized = {g for g in cached_genres 
                            if not any(g.lower() in bg or bg in g.lower() 
