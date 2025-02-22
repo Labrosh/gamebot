@@ -84,13 +84,20 @@ class GameCommands:
         @self.bot.command()
         async def helpgamebot(ctx):
             """Show GameBot's available commands"""
-            help_text = """Here's what I can do:
+            help_text = """🎮 **GameBot Commands**
 • `!recommend` - Get a random game recommendation
 • `!recommend [genre]` - Get a game recommendation for a specific genre
+• `!info [game name]` - Show details about a specific game
+• `!info ai [game name]` - Get an AI-enhanced description of the game
 • `!refresh` - Update the game cache (admin only)
+• `!refresh force` - Force a complete cache rebuild (admin only)
 • `!nukeandrefresh` - Delete cache and force a complete refresh (admin only)
 • `!helpgamebot` - Show this help message
-Want more details? Just @ mention me with "what do you do"! 🎮"""
+
+💡 **Tips**:
+• You can mention me with "what do you do" for a quick intro
+• Game and genre searches are fuzzy - close matches will work!
+• If a game isn't in your library, I'll try to find it on Steam"""
             await ctx.send(help_text)
 
         @self.bot.command()
@@ -197,7 +204,21 @@ Want more details? Just @ mention me with "what do you do"! 🎮"""
                 "commands",
                 "how do you work"
             ]):
-                help_text = "Hi! I'm GameBot! I can recommend games from your Steam library. Try `!recommend` for a random game or `!recommend action` for a specific genre! 🎮"
+                help_text = """👋 Hi! I'm GameBot! Here's what I can do:
+
+🎮 **Game Recommendations**
+• `!recommend` - I'll suggest a random game from your library
+• `!recommend [genre]` - I'll find a game matching your preferred genre
+
+🔍 **Game Information**
+• `!info [game]` - I'll show details about a specific game
+• `!info ai [game]` - Get an AI-enhanced game description
+• If the game isn't in your library, I'll search Steam for it!
+
+💡 **Pro Tips**:
+• My search is fuzzy - close matches will work!
+• Not sure about genres? Just try one, I'll suggest similar ones!
+• Use `!helpgamebot` for a full command list"""
                 await message.channel.send(help_text)
             
             await self.bot.process_commands(message)
