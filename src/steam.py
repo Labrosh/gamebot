@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 import requests
 import concurrent.futures
 from tqdm import tqdm
-import openai
+from openai import OpenAI
 
 # Local imports
 from . import utils
@@ -29,24 +29,24 @@ class SteamCache:
         self.api_logger = APILogger()
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if self.openai_api_key:
-            openai.api_key = self.openai_api_key
-    
+            self.openai_client = OpenAI(api_key=self.openai_api_key)
+
     def load_cache(self) -> Dict:
         """Load cached game data from file and validate it."""
         if os.path.exists(self.cache_file):
             try:
                 with open(self.cache_file, "r") as f:
                     data = json.load(f)
-                
+
                 if "last_updated" not in data or "games" not in data:
                     raise ValueError("Cache file is missing required keys.")
-                
+
                 return data
-            
+
             except (json.JSONDecodeError, ValueError) as e:
                 logger.error(f"Cache file is corrupted: {e}. Loading fresh cache.")
                 return {"last_updated": 0, "games": {}}
-            
+
         return {"last_updated": 0, "games": {}}
 
     def save_cache(self, data: Dict):
@@ -71,22 +71,22 @@ class SteamCache:
             "format": "json"
         }
         url = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
-        
+
         logger.info(f"Fetching games from Steam API...")
         try:
             response = requests.get(url, params=params)
             logger.info(f"Steam API Response Status: {response.status_code}")
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if "response" not in data:
                     logger.error(f"Unexpected API response format: {data}")
                     return []
-                    
+
                 games = data["response"].get("games", [])
                 # Debug log to see what we're getting
                 logger.info(f"First game data: {games[0] if games else 'No games'}")
-                
+
                 # Clean up game data to ensure we have names
                 processed_games = []
                 for game in games:
@@ -107,13 +107,13 @@ class SteamCache:
                             game["name"] = f"Unknown Game {appid}"
                         time.sleep(1)  # Rate limiting
                     processed_games.append(game)
-                
+
                 logger.info(f"Processed {len(processed_games)} games")
                 return processed_games
             else:
                 logger.error(f"Steam API error: {response.text}")
                 return []
-                
+
         except Exception as e:
             logger.error(f"Error fetching games: {e}")
             return []
@@ -145,15 +145,15 @@ class SteamCache:
 Create a fun, engaging 2-3 sentence description that highlights what makes this game unique and exciting.
 Focus on gameplay elements and what makes it special."""
 
-            response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",  # Keep your specified model
                 messages=[
                     {"role": "system", "content": "You are a passionate gamer who loves explaining what makes games special. Keep descriptions concise, fun, and engaging."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=150  # Limit response length
+                max_tokens=150
             )
-            description = response.choices[0].message["content"]
+            description = response.choices[0].message.content
             logger.info(f"AI description generated for {game_name}")
             return description
 
@@ -170,16 +170,16 @@ Focus on gameplay elements and what makes it special."""
             "format": "json"
         }
         url = "https://store.steampowered.com/api/appdetails"
-        
+
         headers = {  # Add headers
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
-        
+
         try:
             # Increase delay to avoid rate limiting
             time.sleep(1.0)  # 1-second delay between requests
             response = requests.get(url, params=params, headers=headers)  # Add headers to request
-            
+
             if response.status_code == 200:
                 data = response.json().get(str(appid), {}).get("data", {})
                 if not data:
@@ -191,21 +191,21 @@ Focus on gameplay elements and what makes it special."""
                         "description": ai_description if ai_description else "No description available (AI failed)",
                         "ai_enhanced": True  # Add flag to indicate AI-generated content
                     }
-                    
+
                 result = {}
                 for field, config in self.REQUIRED_FIELDS.items():
                     value = data
                     for key in config["path"]:
                         value = value.get(key, {})
-                    
+
                     if value:
                         result[field] = config["transform"](value)
                     else:
                         result[field] = "" if field == "description" else []
-                        
+
                 logger.info(f"Successfully fetched details for game {appid}")
                 return result
-                
+
             logger.warning(f"Failed to fetch details for game {appid}: Status {response.status_code}")
             self.api_logger.log_api_error(
                 endpoint="store.steampowered.com/api/appdetails",
@@ -215,7 +215,7 @@ Focus on gameplay elements and what makes it special."""
                 headers=headers
             )
             return {field: [] if field != "description" else "" for field in self.REQUIRED_FIELDS}
-            
+
         except Exception as e:
             logger.error(f"Error fetching details for game {appid}: {e}")
             return {field: [] if field != "description" else "" for field in self.REQUIRED_FIELDS}
@@ -234,26 +234,26 @@ Focus on gameplay elements and what makes it special."""
         """Quick check if Steam library has changed."""
         cache = self.load_cache()
         current = self.get_library_signature()
-        
+
         cached = cache.get("library_signature", {})
         if not cached:
             return True
-            
+
         if current["count"] != cached.get("count", 0):
             logger.info("Game count changed")
             return True
-            
+
         if current["hash"] != cached.get("hash", 0):
             logger.info("Game list changed")
             return True
-            
+
         return False
 
     def is_cache_stale(self) -> bool:
         """Check if cache needs updating."""
         cache = self.load_cache()
         games = cache.get("games", {})
-        
+
         # Check if any games are missing required fields
         for game_name, game_data in games.items():
             for field in self.REQUIRED_FIELDS:
@@ -263,9 +263,9 @@ Focus on gameplay elements and what makes it special."""
                 if not game_data.get(field):  # Check if field is empty
                     logger.info(f"Game {game_name} has empty {field}")
                     return True
-        
+
         logger.info(f"Checking {len(games)} games in cache...")
-        
+
         # Then check library changes
         if self.is_library_changed():
             return True
@@ -276,7 +276,7 @@ Focus on gameplay elements and what makes it special."""
     def fetch_game_details_batch(self, appids: List[int], batch_size: int = 5) -> Dict[int, Dict]:
         """Fetch details for multiple games one at a time."""
         results = {}
-        
+
         # Process each game individually
         with tqdm(appids, desc="Fetching game details", unit="game") as pbar:
             for appid in pbar:
@@ -290,20 +290,20 @@ Focus on gameplay elements and what makes it special."""
 
                 # Add delay between requests
                 time.sleep(1.5)  # Conservative rate limiting
-                
+
                 params = {
                     "appids": str(appid),
                     "cc": "us",
                     "l": "english"
                 }
-                
+
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                 }
-                
+
                 retry_count = 0
                 max_retries = 3
-                
+
                 while retry_count < max_retries:
                     try:
                         response = requests.get(
@@ -312,19 +312,19 @@ Focus on gameplay elements and what makes it special."""
                             headers=headers,
                             timeout=10
                         )
-                        
+
                         if response.status_code == 200:
                             data = response.json()
                             app_data = data.get(str(appid), {})
                             success = app_data.get("success", False)
                             app_data = app_data.get("data", {}) if success else {}
-                            
+
                             results[appid] = {
                                 "genres": [g["description"].lower() for g in app_data.get("genres", [{"description": "unknown"}])],
                                 "description": app_data.get("short_description", "No description available").strip() or "No description available"
                             }
                             break  # Success, exit retry loop
-                            
+
                         elif response.status_code == 429:  # Rate limit
                             retry_count += 1
                             wait_time = 5 * retry_count  # Exponential backoff
@@ -337,19 +337,19 @@ Focus on gameplay elements and what makes it special."""
                                 "description": "No description available"
                             }
                             break
-                            
+
                     except Exception as e:
                         logger.error(f"Request failed for appid {appid}: {e}")
                         retry_count += 1
                         time.sleep(5)
-                
+
                 if retry_count == max_retries:
                     logger.error(f"Failed to fetch appid {appid} after {max_retries} retries")
                     results[appid] = {
                         "genres": ["unknown"],
                         "description": "No description available"
                     }
-                    
+
         return results
 
     def update_cache(self, force=False):
@@ -361,7 +361,7 @@ Focus on gameplay elements and what makes it special."""
             cache = {"games": {}, "last_updated": 0}
         else:
             cache = self.load_cache()
-        
+
         cache["library_signature"] = self.get_library_signature()
 
         if "failed_games" in cache:
@@ -370,7 +370,7 @@ Focus on gameplay elements and what makes it special."""
         owned_games = self.fetch_owned_games()
         total_games = len(owned_games)
         logger.info(f"Found {total_games} games in Steam library")
-        
+
         games_to_update = []
 
         # First pass: Mark games needing updates
@@ -393,7 +393,7 @@ Focus on gameplay elements and what makes it special."""
         if update_count == 0:
             logger.info("No games need updating!")
             return
-        
+
         logger.info(f"Updating {update_count} games...")
 
         # Process games in smaller chunks to save progress regularly
@@ -401,13 +401,13 @@ Focus on gameplay elements and what makes it special."""
         for i in range(0, len(games_to_update), chunk_size):
             chunk = games_to_update[i:i + chunk_size]
             chunk_appids = [game["appid"] for game in chunk]
-            
+
             details = self.fetch_game_details_batch(chunk_appids)
 
             for game in chunk:
                 name = game["name"]
                 appid = game["appid"]
-                
+
                 game_details = details.get(appid, {})
                 cache["games"][name] = {
                     "appid": appid,
@@ -444,20 +444,20 @@ Focus on gameplay elements and what makes it special."""
         """Search Steam API for a game by name and return its details if found."""
         url = "https://store.steampowered.com/api/appdetails"
         search_url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/"
-        
+
         try:
             # First get the full app list
             response = requests.get(search_url)
             if response.status_code != 200:
                 logger.error(f"Steam API error: {response.text}")
                 return None
-            
+
             data = response.json().get("applist", {}).get("apps", [])
-            
+
             # Find exact or very close matches only
             potential_matches = []
             search_term = game_name.lower().strip()
-            
+
             for game in data:
                 game_title = game["name"].lower().strip()
                 # Only accept exact matches or very close matches
@@ -465,15 +465,15 @@ Focus on gameplay elements and what makes it special."""
                     (len(search_term) > 4 and search_term in game_title and  # Substring match for longer terms
                      abs(len(game_title) - len(search_term)) <= 3)):  # Length difference ≤ 3
                     potential_matches.append(game)
-            
+
             if not potential_matches:
                 return None
-                
+
             if len(potential_matches) > 1:
                 logger.info(f"Multiple matches found for '{game_name}', using closest match")
                 # Use the shortest name difference as it's likely the most accurate
                 potential_matches.sort(key=lambda x: abs(len(x["name"]) - len(game_name)))
-            
+
             # Verify the game actually exists by checking its store page
             game = potential_matches[0]
             params = {
@@ -481,7 +481,7 @@ Focus on gameplay elements and what makes it special."""
                 "cc": "us",
                 "l": "english"
             }
-            
+
             retry_attempts = 3
             for attempt in range(retry_attempts):
                 verify_response = requests.get(url, params=params)
@@ -510,7 +510,7 @@ Focus on gameplay elements and what makes it special."""
             store_data = verify_response.json().get(str(game["appid"]), {})
             if not store_data.get("success", False):
                 return None
-                
+
             # Get description and handle empty case
             description = store_data.get("data", {}).get("short_description", "").strip()
             if not description:
