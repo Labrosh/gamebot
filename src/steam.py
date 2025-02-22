@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 import requests
 import concurrent.futures
 from tqdm import tqdm
+import openai
 
 # Local imports
 from . import utils
@@ -26,6 +27,9 @@ class SteamCache:
         self.cache_expiration = 24 * 60 * 60  # 24 hours
         self.concurrent_workers = 4
         self.api_logger = APILogger()
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        if self.openai_api_key:
+            openai.api_key = self.openai_api_key
     
     def load_cache(self) -> Dict:
         """Load cached game data from file and validate it."""
@@ -125,6 +129,39 @@ class SteamCache:
         # "categories": {"path": ["categories"], "transform": lambda x: [c["description"] for c in x]},
     }
 
+    def generate_ai_description(self, game_name: str, steam_description: str = None) -> Optional[str]:
+        """Generate an AI description for a game using OpenAI's API."""
+        logger.info(f"Generating AI description for: {game_name}")
+
+        if not self.openai_api_key:
+            logger.error("OpenAI API Key is missing!")
+            return None
+
+        try:
+            # Build the prompt based on available information
+            context = f"Original Description: {steam_description}\n" if steam_description else ""
+            prompt = f"""Game: {game_name}
+{context}
+Create a fun, engaging 2-3 sentence description that highlights what makes this game unique and exciting.
+Focus on gameplay elements and what makes it special."""
+
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a passionate gamer who loves explaining what makes games special. Keep descriptions concise, fun, and engaging."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=150  # Limit response length
+            )
+            
+            description = response.choices[0].message.content
+            logger.info(f"AI description generated for {game_name}")
+            return description
+
+        except Exception as e:
+            logger.error(f"OpenAI API Error: {e}")
+            return None
+
     def fetch_game_details(self, appid: int) -> Dict:
         """Fetches game details from Steam API."""
         params = {
@@ -147,8 +184,14 @@ class SteamCache:
             if response.status_code == 200:
                 data = response.json().get(str(appid), {}).get("data", {})
                 if not data:
-                    logger.warning(f"No data returned for game {appid} - will need AI description")
-                    return {field: [] if field != "description" else "No description available (AI needed)" for field in self.REQUIRED_FIELDS}
+                    # Try generating AI description with more context
+                    game_name = str(appid)  # We could try to get the game name from cache if available
+                    ai_description = self.generate_ai_description(game_name)
+                    return {
+                        "genres": ["unknown"],
+                        "description": ai_description if ai_description else "No description available (AI failed)",
+                        "ai_enhanced": True  # Add flag to indicate AI-generated content
+                    }
                     
                 result = {}
                 for field, config in self.REQUIRED_FIELDS.items():

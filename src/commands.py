@@ -21,6 +21,37 @@ class GameCommands:
         logger.info(f"🔍 AI description requested for: {game_name}")
         return None  # AI call will be implemented later
 
+    def info_with_ai(self, ctx, game_name: str):
+        """Helper method to handle AI-enhanced game descriptions."""
+        games = self.steam.get_games()
+        matches = utils.find_similar_game(game_name, list(games.keys()))
+        
+        if not matches:
+            return ctx.send(f"❌ Couldn't find any games matching '{game_name}'")
+            
+        game = matches[0]
+        game_data = games[game]
+        
+        return ctx.send(f"🤖 Generating an enhanced description for **{game}**...")
+        
+        # Pass original description to AI for context
+        original_desc = game_data.get("description", "")
+        ai_desc = self.steam.generate_ai_description(game, original_desc)
+        
+        if ai_desc:
+            store_link = f"https://store.steampowered.com/app/{game_data['appid']}"
+            genres = f"({', '.join(game_data.get('genres', ['unknown']))})"
+            
+            message = (
+                f"🎮 **{game}** {genres}\n"
+                f"🔗 **[Steam Store]({store_link})**\n\n"
+                f"📝 **Steam Description:**\n> {original_desc}\n\n"
+                f"🎭 **Fun Version:**\n> {ai_desc}"
+            )
+            return ctx.send(message)
+        else:
+            return ctx.send(f"❌ Sorry, I couldn't generate an AI description for '{game}' at the moment.")
+
     def _register_commands(self):
         """Register all commands with the bot."""
         @self.bot.command()
@@ -181,7 +212,8 @@ class GameCommands:
 
             # Normal command processing
             if mode and mode.lower() == "ai" and game_name:
-                return await self.info_with_ai(ctx, game_name)
+                await self.info_with_ai(ctx, game_name)
+                return
             
             if mode and game_name:
                 game_name = f"{mode} {game_name}"
@@ -255,25 +287,6 @@ class GameCommands:
                 f"{desc}"
             )
             await ctx.send(message)
-
-        async def info_with_ai(self, ctx, game_name: str):
-            """Helper method to handle AI-enhanced game descriptions."""
-            games = self.steam.get_games()
-            matches = utils.find_similar_game(game_name, list(games.keys()))
-            
-            if not matches:
-                await ctx.send(f"❌ Couldn't find any games matching '{game_name}'")
-                return
-                
-            game = matches[0]
-            await ctx.send(f"🤖 Generating an enhanced AI description for **{game}**...")
-            
-            ai_desc = self.generate_ai_description(game)
-            if (ai_desc):
-                message = f"🎮 **{game}**\n{ai_desc}"
-                await ctx.send(message)
-            else:
-                await ctx.send(f"❌ Sorry, I couldn't generate an AI description for '{game}' at the moment.")
 
         @self.bot.event
         async def on_message(message):
