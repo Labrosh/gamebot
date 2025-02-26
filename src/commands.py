@@ -439,3 +439,14 @@ class GameCommands:
                 await message.channel.send(help_text)
             
             await self.bot.process_commands(message)
+
+        @self.bot.command()
+        async def update_game_embeddings(ctx):
+            """Update embeddings for all games in the cache."""
+            await ctx.send("Starting game embeddings update...")
+            try:
+                from src.embedding import update_embeddings
+                update_embeddings()
+                await ctx.send("✅ Game embeddings have been updated!")
+            except Exception as e:
+                await ctx.send(f"❌ Error updating embeddings: {str(e)}")
